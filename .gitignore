@@ -1,0 +1,32 @@
+# Bianchini Method (workspace local, nao versionar)
+.bianchini/
+
+# Segredos e ambiente
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+playwright-report/
+test-results/
+
+# Dados, modelos e midia
+data/
+models/
+*.mp4
+*.wav
+*.safetensors
+*.pth
+*.onnx
+
+# Sistema
+.DS_Store
