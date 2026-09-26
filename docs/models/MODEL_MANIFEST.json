@@ -1,0 +1,412 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "infinitetalk-code",
+      "kind": "code",
+      "url": "https://github.com/MeiGen-AI/InfiniteTalk",
+      "revision": "50aa0a94184315407a991ae804d9b58d6d311ba8",
+      "code_license": "Apache-2.0",
+      "weights_license": null,
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/MeiGen-AI/InfiniteTalk/blob/50aa0a94184315407a991ae804d9b58d6d311ba8/LICENSE.txt"
+      ],
+      "files": []
+    },
+    {
+      "id": "infinitetalk-weights",
+      "kind": "model",
+      "url": "https://huggingface.co/MeiGen-AI/InfiniteTalk",
+      "revision": "d59847ebdacf19245bfca3fb23311c0cada8378a",
+      "code_license": "Apache-2.0",
+      "weights_license": "Apache-2.0",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/MeiGen-AI/InfiniteTalk/blob/d59847ebdacf19245bfca3fb23311c0cada8378a/README.md",
+        "https://github.com/MeiGen-AI/InfiniteTalk/blob/50aa0a94184315407a991ae804d9b58d6d311ba8/LICENSE.txt"
+      ],
+      "files": [
+        {
+          "path": "single/infinitetalk.safetensors",
+          "url": "https://huggingface.co/MeiGen-AI/InfiniteTalk/resolve/d59847ebdacf19245bfca3fb23311c0cada8378a/single/infinitetalk.safetensors",
+          "sha256": "ff1d43f9df885f9c80f25df292050fe753440d890033270a90e1f99f75dd3721",
+          "size": 9948708152
+        },
+        {
+          "path": "quant_models/infinitetalk_single_fp8.safetensors",
+          "url": "https://huggingface.co/MeiGen-AI/InfiniteTalk/resolve/d59847ebdacf19245bfca3fb23311c0cada8378a/quant_models/infinitetalk_single_fp8.safetensors",
+          "sha256": "5cb097f827f03368f9aaed8f69c1d357179b9268dafb8e80f2312a7067205045",
+          "size": 19499692400
+        },
+        {
+          "path": "quant_models/infinitetalk_single_fp8.json",
+          "url": "https://huggingface.co/MeiGen-AI/InfiniteTalk/resolve/d59847ebdacf19245bfca3fb23311c0cada8378a/quant_models/infinitetalk_single_fp8.json",
+          "sha256": "09516aae6b9f63de99deebc8fcc837b5f3c0d57c68ddb71cc8ceb9494d8e7bb5",
+          "size": 49337
+        },
+        {
+          "path": "quant_models/t5_fp8.safetensors",
+          "url": "https://huggingface.co/MeiGen-AI/InfiniteTalk/resolve/d59847ebdacf19245bfca3fb23311c0cada8378a/quant_models/t5_fp8.safetensors",
+          "sha256": "585a6f8cd13432f79e18695b58a4312c1782528a6f3cfc58121dbc2c018a7467",
+          "size": 6733349304
+        },
+        {
+          "path": "quant_models/t5_map_fp8.json",
+          "url": "https://huggingface.co/MeiGen-AI/InfiniteTalk/resolve/d59847ebdacf19245bfca3fb23311c0cada8378a/quant_models/t5_map_fp8.json",
+          "sha256": "6c479cb556f2b84169d78853d85579cb04aa843e013b9d89f60a1f32b36399b4",
+          "size": 12506
+        }
+      ]
+    },
+    {
+      "id": "wan2.1-i2v-14b-480p",
+      "kind": "model",
+      "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P",
+      "revision": "6b73f84e66371cdfe870c72acd6826e1d61cf279",
+      "code_license": "Apache-2.0",
+      "weights_license": "Apache-2.0",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/blob/6b73f84e66371cdfe870c72acd6826e1d61cf279/LICENSE.txt",
+        "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/blob/6b73f84e66371cdfe870c72acd6826e1d61cf279/README.md",
+        "https://huggingface.co/google/umt5-xxl/blob/66cb9e7e85526fe440a945569e42c72fb6cbc0ad/README.md",
+        "https://huggingface.co/FacebookAI/xlm-roberta-large/blob/c23d21b0620b635a76227c604d44e43a9f0ee389/README.md",
+        "https://huggingface.co/laion/CLIP-ViT-H-14-frozen-xlm-roberta-large-laion5B-s13B-b90k/blob/f9ab955287d06ac45c7654f26fecd29301c70a1f/README.md"
+      ],
+      "files": [
+        {
+          "path": "diffusion_pytorch_model-00001-of-00007.safetensors",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model-00001-of-00007.safetensors",
+          "sha256": "09c0170242cfe9598208724585196ca18f294928fe25971149e1d7b37b3b51d6",
+          "size": 9847223624
+        },
+        {
+          "path": "diffusion_pytorch_model-00002-of-00007.safetensors",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model-00002-of-00007.safetensors",
+          "sha256": "9e9dd8069241f0cbfe8f269e784e915ddaa7f177272b9850ae88c494d418c181",
+          "size": 9797021016
+        },
+        {
+          "path": "diffusion_pytorch_model-00003-of-00007.safetensors",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model-00003-of-00007.safetensors",
+          "sha256": "22af36eb620c381d57a2dd5d5e3a001bf90ba0ca32f2d5013d6ca45225b11d5f",
+          "size": 9797041744
+        },
+        {
+          "path": "diffusion_pytorch_model-00004-of-00007.safetensors",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model-00004-of-00007.safetensors",
+          "sha256": "5c2be0421b8df4a8e7dd31cdbb6489567438ae14b812b57518e43c6f4e49a755",
+          "size": 9692142864
+        },
+        {
+          "path": "diffusion_pytorch_model-00005-of-00007.safetensors",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model-00005-of-00007.safetensors",
+          "sha256": "0ba7f3ab69f414f23e5566e607b9385a8f67907302cbaaf86507b3a826a20dda",
+          "size": 9692142864
+        },
+        {
+          "path": "diffusion_pytorch_model-00006-of-00007.safetensors",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model-00006-of-00007.safetensors",
+          "sha256": "d7287e9233cbf67a75fce8ef8be24232ec93d6336f148972465db00008d69e28",
+          "size": 9692142864
+        },
+        {
+          "path": "diffusion_pytorch_model-00007-of-00007.safetensors",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model-00007-of-00007.safetensors",
+          "sha256": "d1bc30f07b162c34b90e4ee4a349f81b6e1a3a342187ea9ea153c9e4dbb07676",
+          "size": 7061933536
+        },
+        {
+          "path": "diffusion_pytorch_model.safetensors.index.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/diffusion_pytorch_model.safetensors.index.json",
+          "sha256": "19d926a3743f6744a7e0f25298f75fe10cd28dbc31f48f8fd2b0ae45db64f90c",
+          "size": 116451
+        },
+        {
+          "path": "config.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/config.json",
+          "sha256": "b715e6ed094566c73a05e99129105683ff4362af6a783a17dc0dd32884a5d4a7",
+          "size": 250
+        },
+        {
+          "path": "Wan2.1_VAE.pth",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/Wan2.1_VAE.pth",
+          "sha256": "38071ab59bd94681c686fa51d75a1968f64e470262043be31f7a094e442fd981",
+          "size": 507609880
+        },
+        {
+          "path": "models_t5_umt5-xxl-enc-bf16.pth",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/models_t5_umt5-xxl-enc-bf16.pth",
+          "sha256": "7cace0da2b446bbbbc57d031ab6cf163a3d59b366da94e5afe36745b746fd81d",
+          "size": 11361920418
+        },
+        {
+          "path": "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth",
+          "sha256": "628c9998b613391f193eb67ff68da9667d75f492911e4eb3decf23460a158c38",
+          "size": 4772359047
+        },
+        {
+          "path": "google/umt5-xxl/special_tokens_map.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/google/umt5-xxl/special_tokens_map.json",
+          "sha256": "7b8a9f5040adb67b5805abdfd42c1f8d0f3d0e711f10726580eb3789cd0ad61d",
+          "size": 6623
+        },
+        {
+          "path": "google/umt5-xxl/spiece.model",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/google/umt5-xxl/spiece.model",
+          "sha256": "e3909a67b780650b35cf529ac782ad2b6b26e6d1f849d3fbb6a872905f452458",
+          "size": 4548313
+        },
+        {
+          "path": "google/umt5-xxl/tokenizer.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/google/umt5-xxl/tokenizer.json",
+          "sha256": "6e197b4d3dbd71da14b4eb255f4fa91c9c1f2068b20a2de2472967ca3d22602b",
+          "size": 16837417
+        },
+        {
+          "path": "google/umt5-xxl/tokenizer_config.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/google/umt5-xxl/tokenizer_config.json",
+          "sha256": "ed9a3a8b0faa71a70a32847e0435fe036e6e112d4df4edb7bb48a921e344dc05",
+          "size": 61728
+        },
+        {
+          "path": "xlm-roberta-large/sentencepiece.bpe.model",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/xlm-roberta-large/sentencepiece.bpe.model",
+          "sha256": "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865",
+          "size": 5069051
+        },
+        {
+          "path": "xlm-roberta-large/special_tokens_map.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/xlm-roberta-large/special_tokens_map.json",
+          "sha256": "06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f",
+          "size": 280
+        },
+        {
+          "path": "xlm-roberta-large/tokenizer.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/xlm-roberta-large/tokenizer.json",
+          "sha256": "62c24cdc13d4c9952d63718d6c9fa4c287974249e16b7ade6d5a85e7bbb75626",
+          "size": 17082660
+        },
+        {
+          "path": "xlm-roberta-large/tokenizer_config.json",
+          "url": "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P/resolve/6b73f84e66371cdfe870c72acd6826e1d61cf279/xlm-roberta-large/tokenizer_config.json",
+          "sha256": "efb5c0d09722e5fe59a462cd2a9976ee216d55b037597d997cd3fe833216da15",
+          "size": 418
+        }
+      ]
+    },
+    {
+      "id": "chinese-wav2vec2-base",
+      "kind": "model",
+      "url": "https://huggingface.co/TencentGameMate/chinese-wav2vec2-base",
+      "revision": "5f7a6cfdfc5440ec78748f79a9dd66f077c2b463",
+      "code_license": "MIT",
+      "weights_license": "MIT",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/TencentGameMate/chinese-wav2vec2-base/blob/5f7a6cfdfc5440ec78748f79a9dd66f077c2b463/README.md"
+      ],
+      "files": [
+        {
+          "path": "config.json",
+          "url": "https://huggingface.co/TencentGameMate/chinese-wav2vec2-base/resolve/5f7a6cfdfc5440ec78748f79a9dd66f077c2b463/config.json",
+          "sha256": "dc2cd2f989104b9510ce9e43a343a6f1fe55aa60baa1fcfca0c5908e6590b8b6",
+          "size": 1951
+        },
+        {
+          "path": "preprocessor_config.json",
+          "url": "https://huggingface.co/TencentGameMate/chinese-wav2vec2-base/resolve/5f7a6cfdfc5440ec78748f79a9dd66f077c2b463/preprocessor_config.json",
+          "sha256": "c1707926644954affc391ab09ccfaf470ccd80af218d11350991090711441c09",
+          "size": 160
+        },
+        {
+          "path": "model.safetensors",
+          "url": "https://huggingface.co/TencentGameMate/chinese-wav2vec2-base/resolve/5f7a6cfdfc5440ec78748f79a9dd66f077c2b463/model.safetensors",
+          "sha256": "b86f5be7b752fc655c27387a75712f733315a30f976e5875491599615399e773",
+          "size": 380204696
+        }
+      ],
+      "source_ref": "refs/pr/1"
+    },
+    {
+      "id": "chatterbox-tts",
+      "kind": "code",
+      "url": "https://github.com/resemble-ai/chatterbox",
+      "revision": "59bc590b3cad826e5d5987745bf6844627a21ad5",
+      "code_license": "MIT",
+      "weights_license": null,
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/resemble-ai/chatterbox/blob/59bc590b3cad826e5d5987745bf6844627a21ad5/LICENSE",
+        "https://pypi.org/project/chatterbox-tts/0.1.7/"
+      ],
+      "files": [
+        {
+          "path": "chatterbox_tts-0.1.7-py3-none-any.whl",
+          "url": "https://files.pythonhosted.org/packages/54/37/11a7f06983bfd5ebba71eb2caa6660941b17b31f3c49d4a5fe9e1e804d31/chatterbox_tts-0.1.7-py3-none-any.whl",
+          "sha256": "83782500e3ad4e7c919132e9d7eb8755f29f57c5bde5ec48c655ca23a4eb113c",
+          "size": 108543
+        }
+      ],
+      "version": "0.1.7"
+    },
+    {
+      "id": "chatterbox-multilingual-pt-br",
+      "kind": "model",
+      "url": "https://huggingface.co/ResembleAI/Chatterbox-Multilingual-pt-br",
+      "revision": "b3952f18bc2eaa72b9bd7c17d2c4653bcad4770d",
+      "code_license": "MIT",
+      "weights_license": "MIT",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/ResembleAI/Chatterbox-Multilingual-pt-br/blob/b3952f18bc2eaa72b9bd7c17d2c4653bcad4770d/README.md",
+        "https://github.com/resemble-ai/chatterbox/blob/59bc590b3cad826e5d5987745bf6844627a21ad5/LICENSE"
+      ],
+      "files": [
+        {
+          "path": "t3_pt_br.safetensors",
+          "url": "https://huggingface.co/ResembleAI/Chatterbox-Multilingual-pt-br/resolve/b3952f18bc2eaa72b9bd7c17d2c4653bcad4770d/t3_pt_br.safetensors",
+          "sha256": "074aaf65255eb9cb960288f7cc72e09d3b5008f6e0b14868c0d4e5b0bd7cbb6c",
+          "size": 2143990296
+        },
+        {
+          "path": "s3gen_v3.pt",
+          "url": "https://huggingface.co/ResembleAI/Chatterbox-Multilingual-pt-br/resolve/b3952f18bc2eaa72b9bd7c17d2c4653bcad4770d/s3gen_v3.pt",
+          "sha256": "f7abce4b196dae2d08d9296cbebc6521b046079577643b42a19a03499d08721e",
+          "size": 1056903694
+        },
+        {
+          "path": "grapheme_mtl_merged_expanded_v1.json",
+          "url": "https://huggingface.co/ResembleAI/Chatterbox-Multilingual-pt-br/resolve/b3952f18bc2eaa72b9bd7c17d2c4653bcad4770d/grapheme_mtl_merged_expanded_v1.json",
+          "sha256": "69632f47220a788a52ce2661d096453c5655e9bf25289d89a8d832c46ee07dbf",
+          "size": 69989
+        }
+      ]
+    },
+    {
+      "id": "chatterbox-base",
+      "kind": "model",
+      "url": "https://huggingface.co/ResembleAI/chatterbox",
+      "revision": "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18",
+      "code_license": "MIT",
+      "weights_license": "MIT",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/ResembleAI/chatterbox/blob/5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18/README.md",
+        "https://github.com/resemble-ai/chatterbox/blob/59bc590b3cad826e5d5987745bf6844627a21ad5/LICENSE"
+      ],
+      "files": [
+        {
+          "path": "ve.pt",
+          "url": "https://huggingface.co/ResembleAI/chatterbox/resolve/5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18/ve.pt",
+          "sha256": "4b16d836bc598509860f6fa068165a8bb5e9ac84f05582dfcf278a5a372879f1",
+          "size": 5698626
+        },
+        {
+          "path": "conds.pt",
+          "url": "https://huggingface.co/ResembleAI/chatterbox/resolve/5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18/conds.pt",
+          "sha256": "6552d70568833628ba019c6b03459e77fe71ca197d5c560cef9411bee9d87f4e",
+          "size": 107374
+        },
+        {
+          "path": "Cangjie5_TC.json",
+          "url": "https://huggingface.co/ResembleAI/chatterbox/resolve/5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18/Cangjie5_TC.json",
+          "sha256": "7073fd9de919443ae88e0bd2449917a65fe54898a4413ed1edcc4b67f28bce8c",
+          "size": 1920163
+        }
+      ]
+    },
+    {
+      "id": "resemble-perth",
+      "kind": "code",
+      "url": "https://github.com/resemble-ai/Perth",
+      "revision": "d6cc38cc9ab9da71c6b64d8c741bc13049eb881e",
+      "code_license": "MIT",
+      "weights_license": null,
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/resemble-ai/Perth/blob/d6cc38cc9ab9da71c6b64d8c741bc13049eb881e/LICENSE"
+      ],
+      "files": [],
+      "version": "1.0.1"
+    },
+    {
+      "id": "rembg",
+      "kind": "code",
+      "url": "https://github.com/danielgatis/rembg",
+      "revision": "202e42649a8492a7c49f808de36608a7d1cbbfe3",
+      "code_license": "MIT",
+      "weights_license": null,
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/danielgatis/rembg/blob/202e42649a8492a7c49f808de36608a7d1cbbfe3/LICENSE.txt"
+      ],
+      "files": [],
+      "version": "2.0.85"
+    },
+    {
+      "id": "birefnet-portrait",
+      "kind": "model",
+      "url": "https://github.com/danielgatis/rembg/releases/tag/v0.0.0",
+      "revision": "7fb6683169d588f653281d53c3c258838194c950",
+      "code_license": "MIT",
+      "weights_license": "MIT",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/ZhengPeng7/BiRefNet/blob/ebcc0bc8ec7fe919cec829f2dea656b3078acddc/LICENSE",
+        "https://huggingface.co/ZhengPeng7/BiRefNet-portrait/blob/b6561965a70070d9143fd9e558f6ca3c481510db/README.md",
+        "https://github.com/danielgatis/rembg/blob/202e42649a8492a7c49f808de36608a7d1cbbfe3/rembg/sessions/birefnet_portrait.py"
+      ],
+      "files": [
+        {
+          "path": "birefnet-portrait.onnx",
+          "url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-portrait-epoch_150.onnx",
+          "sha256": "1ba1c8ff5a7bbfadc8d8d13fb11d7be793f91f23d9d466549e37a854f6668f99",
+          "size": 972666916
+        }
+      ]
+    },
+    {
+      "id": "flash-attn-wheel",
+      "kind": "wheel",
+      "url": "https://github.com/Dao-AILab/flash-attention",
+      "revision": "2.7.4.post1",
+      "code_license": "BSD-3-Clause",
+      "weights_license": null,
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/Dao-AILab/flash-attention/blob/5231d95fe13733fb534c01895f7ea88c6a6c7793/LICENSE"
+      ],
+      "files": [
+        {
+          "path": "flash_attn-2.7.4.post1+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl",
+          "url": "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1%2Bcu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl",
+          "sha256": "a8719a86d0cd12a105739151f9e45ac8c2ecb840a83ed7a080a88d1645a98440",
+          "size": 187788763
+        }
+      ]
+    },
+    {
+      "id": "xformers-wheel",
+      "kind": "wheel",
+      "url": "https://github.com/facebookresearch/xformers",
+      "revision": "0.0.28.post1",
+      "code_license": "BSD-3-Clause",
+      "weights_license": null,
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/facebookresearch/xformers/blob/d3948b5cb9a3711032a0ef0e036e809c7b08c1e0/LICENSE"
+      ],
+      "files": [
+        {
+          "path": "xformers-0.0.28.post1-cp310-cp310-manylinux_2_28_x86_64.whl",
+          "url": "https://download.pytorch.org/whl/cu121/xformers-0.0.28.post1-cp310-cp310-manylinux_2_28_x86_64.whl",
+          "sha256": "fe6f1fc79f42befa8de0ca65b207e4cd9b0f32117c9a45eb6663a70039379c8c",
+          "size": 16654001
+        }
+      ]
+    }
+  ]
+}
