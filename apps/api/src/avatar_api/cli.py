@@ -11,6 +11,7 @@ from avatar_api.auth import UserCreationError, create_user
 from avatar_api.config import Settings
 from avatar_api.db import create_db_engine
 from avatar_api.devseed import seed_dev_catalog
+from avatar_api.recipes import RecipeLoadError, load_frozen_recipe
 
 
 def _read_password(from_stdin: bool) -> str | None:
@@ -41,6 +42,29 @@ def _users_create(args: argparse.Namespace) -> int:
     finally:
         engine.dispose()
     print(f"Usuário {user.username} criado.")
+    return 0
+
+
+def _recipes_load(args: argparse.Namespace) -> int:
+    database_url = Settings.from_env().database_url
+    if not database_url:
+        print("Erro: defina DATABASE_URL para acessar o banco.", file=sys.stderr)
+        return 1
+    try:
+        spec = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        print(f"Erro: a entrada padrão não é um JSON válido ({exc}).", file=sys.stderr)
+        return 1
+    engine = create_db_engine(database_url)
+    try:
+        with Session(engine, expire_on_commit=False) as db:
+            recipe = load_frozen_recipe(db, spec)
+    except RecipeLoadError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        engine.dispose()
+    print(f"{recipe.id} {recipe.name}")
     return 0
 
 
@@ -75,6 +99,12 @@ def _parser() -> argparse.ArgumentParser:
         help="Lê a senha da primeira linha da entrada padrão em vez de perguntar.",
     )
     create.set_defaults(handler=_users_create)
+    recipes = commands.add_parser("recipes", help="Receitas de renderização.")
+    recipes_commands = recipes.add_subparsers(dest="recipes_command", required=True)
+    load = recipes_commands.add_parser(
+        "load", help="Registra como vigente a receita congelada lida da entrada padrão."
+    )
+    load.set_defaults(handler=_recipes_load)
     seed = commands.add_parser(
         "seed-dev", help="Cria receita, avatar e cenário de desenvolvimento (APP_ENV=development)."
     )
