@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "name": "RECIPE-v1",
+  "status": "draft",
+  "manifest": "MODEL_MANIFEST.json",
+  "worker_image": {
+    "ref": "avatar-worker:pilot",
+    "digest": null
+  },
+  "cutout": {
+    "model": "birefnet-portrait",
+    "components": ["rembg", "birefnet-portrait"]
+  },
+  "tts": {
+    "engine": "chatterbox-multilingual",
+    "language": "pt",
+    "sample_rate": 24000,
+    "components": [
+      "chatterbox-tts",
+      "chatterbox-multilingual-pt-br",
+      "chatterbox-base",
+      "resemble-perth"
+    ],
+    "voices": {
+      "feminina": {"kind": "default"},
+      "masculina": {"kind": "default"}
+    }
+  },
+  "avatar": {
+    "engine": "infinitetalk-single",
+    "components": [
+      "infinitetalk-code",
+      "infinitetalk-weights",
+      "wan2.1-i2v-14b-480p",
+      "chinese-wav2vec2-base"
+    ],
+    "wheels": ["flash-attn-wheel", "xformers-wheel"],
+    "profile": "480p-fp8",
+    "size": "infinitetalk-480",
+    "sample_steps": 40,
+    "mode": "streaming",
+    "max_frame_num": 1000,
+    "motion_frame": 9,
+    "quant": "fp8",
+    "num_persistent_param_in_dit": 0,
+    "prompt": "A person talks to the camera with natural head and shoulder movements and expressive facial expressions.",
+    "buckets": {
+      "9:16": [448, 832],
+      "16:9": [896, 448]
+    }
+  },
+  "canvas": {
+    "9:16": [1080, 1920],
+    "16:9": [1920, 1080]
+  },
+  "output": {
+    "fps": 25,
+    "video_codec": "libx264",
+    "pix_fmt": "yuv420p",
+    "crf": 18,
+    "preset": "medium",
+    "audio_codec": "aac",
+    "audio_sample_rate": 48000,
+    "audio_bitrate": "192k",
+    "faststart": true
+  },
+  "limits": {
+    "max_audio_seconds": 40,
+    "max_script_chars": 600,
+    "chars_per_second": 15
+  },
+  "pilot": null
+}
