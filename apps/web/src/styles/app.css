@@ -201,6 +201,53 @@ dialog[open] { animation: pop var(--dur-base) var(--ease-out); }
 .secret { display: flex; gap: var(--sp-2); align-items: stretch; }
 .secret code { flex: 1; min-width: 0; padding: var(--sp-3); border-radius: var(--r-s); background: var(--c-stage); color: var(--c-tally); font-family: var(--font-mono); font-size: var(--fs-13); overflow-wrap: anywhere; }
 
+/* ============ Assets: cartões, varredura de recorte, upload e controle segmentado ============ */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-5); }
+.asset { position: relative; display: grid; grid-template-rows: auto 1fr; background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-l); overflow: hidden; }
+.asset.is-archived { opacity: .7; }
+.asset-art { position: relative; aspect-ratio: 4 / 5; overflow: hidden; background: linear-gradient(180deg, #e3e2f2, #cfcde6); }
+.asset-art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.asset-body { display: grid; gap: var(--sp-2); padding: var(--sp-4); align-content: start; }
+.asset-title { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.asset-title h3 { font-size: var(--fs-18); font-weight: var(--fw-bold); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.asset-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.asset-foot { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
+.scan { position: absolute; inset: 0; background: rgba(31,28,63,.35); display: grid; place-items: end start; padding: var(--sp-3); overflow: hidden; }
+.scan::before { content: ""; position: absolute; left: 0; right: 0; height: 36%; top: -36%; background: linear-gradient(180deg, transparent, rgba(255,176,32,.35) 80%, rgba(255,176,32,.9)); animation: scan 1.8s var(--ease-inout) infinite; }
+.scan span { position: relative; color: #fff; font-weight: var(--fw-semibold); font-size: var(--fs-13); background: rgba(31,28,63,.7); padding: 4px 10px; border-radius: var(--r-pill); }
+@keyframes scan { to { top: 100%; } }
+.fail-ov { position: absolute; inset: auto 0 0 0; display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-3); background: rgba(124,28,22,.88); color: #fff; font-size: var(--fs-13); line-height: 1.4; }
+.fail-ov svg { width: 18px; height: 18px; flex: none; }
+
+.drop { position: relative; display: grid; justify-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); border: 1.5px dashed var(--c-line-strong); border-radius: var(--r-m); background: var(--c-paper); text-align: center; cursor: pointer; transition: border-color var(--dur-fast), background var(--dur-fast); }
+.drop:hover, .drop.is-over { border-color: var(--c-ink); background: var(--c-surface); }
+.drop.is-invalid { border-color: var(--c-fail); background: var(--c-fail-soft); }
+.drop svg { width: 34px; height: 34px; color: var(--c-ink-2); }
+.drop b { font-weight: var(--fw-semibold); }
+.drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.drop:has(input:focus-visible) { outline: 2px solid var(--c-focus); outline-offset: 2px; }
+.drop-preview { display: flex; gap: var(--sp-4); align-items: center; padding: var(--sp-3); border: 1px solid var(--c-line); border-radius: var(--r-m); background: var(--c-surface); }
+.drop-preview .ph { width: 72px; height: 90px; border-radius: var(--r-s); overflow: hidden; background: var(--c-sunken); flex: none; }
+.drop-preview .ph img { width: 100%; height: 100%; object-fit: cover; }
+.drop-file { display: grid; gap: 4px; min-width: 0; }
+.drop-file b { overflow-wrap: anywhere; }
+.drop-file .btn { justify-self: start; }
+
+.seg { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; background: var(--c-sunken); border-radius: var(--r-m); justify-self: start; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 40px; padding: 0 var(--sp-4); border-radius: var(--r-s); cursor: pointer; font-weight: var(--fw-semibold); color: var(--c-ink-2); transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast); }
+.seg label:hover { color: var(--c-ink); }
+.seg input:checked + label { background: var(--c-surface); color: var(--c-ink); box-shadow: 0 1px 3px rgba(27,25,54,.14); }
+.seg input:focus-visible + label { outline: 2px solid var(--c-focus); outline-offset: 1px; }
+.seg[aria-invalid="true"] { box-shadow: inset 0 0 0 1px var(--c-fail); }
+
+/* ============ Toast ============ */
+.toasts { position: fixed; left: 50%; bottom: calc(var(--sp-6) + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: var(--sp-2); z-index: 50; width: min(440px, calc(100vw - 32px)); pointer-events: none; }
+.toast { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-m); background: var(--c-stage); color: var(--c-stage-text); box-shadow: var(--shadow-pop); font-weight: var(--fw-medium); animation: toast-in 320ms var(--ease-out); pointer-events: auto; }
+.toast svg { width: 20px; height: 20px; flex: none; color: #6fe0ae; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(12px); } }
+
 /* ============ Login ============ */
 .login { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(380px, .85fr); min-height: 100%; }
 .login-stage { margin: var(--sp-4); border-radius: calc(var(--r-stage) + 6px); padding: var(--sp-10); display: grid; grid-template-rows: auto 1fr auto auto; gap: var(--sp-6); }
@@ -269,4 +316,8 @@ dialog[open] { animation: pop var(--dur-base) var(--ease-out); }
   .login-stage .stage-view { min-height: 260px; }
   .dlg { padding: var(--sp-5); }
   .panel { padding: var(--sp-5); }
+  .asset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+  .asset-body { padding: var(--sp-3); }
+  .asset-title h3 { font-size: var(--fs-16); }
+  .asset-foot { flex-wrap: wrap; }
 }

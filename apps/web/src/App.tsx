@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } fr
 
 import { logout, onUnauthorized, restoreSession, type SessionUser } from "./api";
 import { Access } from "./screens/Access";
+import { Avatars } from "./screens/Avatars";
 import { Login } from "./screens/Login";
 import { BrandMark, BrandName, Icon, initials, type IconName } from "./ui";
 
@@ -161,7 +162,7 @@ export function App() {
     <Routes>
       <Route path="/entrar" element={<SignIn user={user} onSignedIn={setUser} />} />
       <Route element={<RequireSession user={user} onSignOut={signOut} />}>
-        <Route path="/avatares" element={<PageHead title="Avatares" description="Rostos e vozes disponíveis para novos vídeos." />} />
+        <Route path="/avatares" element={<Avatars />} />
         <Route path="/cenarios" element={<PageHead title="Cenários" description="Fundos e enquadramentos para 9:16 e 16:9." />} />
         <Route path="/cenarios/novo" element={<PageHead title="Criar cenário" description="Escolha o fundo e enquadre o avatar nos dois formatos." />} />
         <Route path="/acesso" element={<Access />} />
