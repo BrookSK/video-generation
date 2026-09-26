@@ -6,12 +6,14 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from avatar_api import jobs
 from avatar_api.auth import DbSession
 from avatar_api.errors import ApiError
 from avatar_api.jobs import (
+    AssetFileName,
     AssetPreparePayload,
     AttemptFileName,
     ProcessingStage,
@@ -19,6 +21,8 @@ from avatar_api.jobs import (
     QueueKind,
     VideoPayload,
 )
+from avatar_api.models import StoredFile
+from avatar_api.storage import resolve_path
 
 
 def require_worker(request: Request) -> None:
@@ -116,6 +120,19 @@ def asset_task_heartbeat(
     return HeartbeatOut(lease_until=lease_until)
 
 
+# --- arquivos -------------------------------------------------------------------------
+
+
+@router.get("/files/{file_id}")
+def download_file(file_id: uuid.UUID, db: DbSession, request: Request) -> FileResponse:
+    """Transmite um arquivo do volume, como a imagem de origem do avatar a preparar."""
+    stored = db.get(StoredFile, file_id)
+    path = resolve_path(request.app.state.settings.data_dir, stored) if stored else None
+    if path is None or not path.is_file():
+        raise ApiError(404, "NOT_FOUND", "Arquivo não encontrado.")
+    return FileResponse(path, media_type=stored.content_type)
+
+
 # --- publicação -----------------------------------------------------------------------
 
 
@@ -131,6 +148,13 @@ class VideoCompleteIn(AttemptRef):
     result_file_id: uuid.UUID
     stage_timings: dict[str, float] = Field(default_factory=dict)
     peak_vram_mb: int | None = Field(default=None, ge=0)
+
+
+class AssetCompleteIn(AttemptRef):
+    # Opcionais aqui para que a falta de um deles vire 422 INVALID_RESULT no complete.
+    prepared_file_id: uuid.UUID | None = None
+    preview_9x16_file_id: uuid.UUID | None = None
+    preview_16x9_file_id: uuid.UUID | None = None
 
 
 class CompleteOut(BaseModel):
@@ -152,14 +176,17 @@ class FailOut(BaseModel):
     attempt: int
 
 
-@router.put("/jobs/{job_id}/attempts/{attempt_id}/files/{name}")
-def upload_attempt_file(
-    job_id: uuid.UUID,
+Sha256Form = Annotated[str, Form(pattern=r"^[0-9a-fA-F]{64}$")]
+
+
+def _upload(
+    kind: QueueKind,
+    item_id: uuid.UUID,
     attempt_id: uuid.UUID,
-    name: AttemptFileName,
-    file: Annotated[UploadFile, File()],
-    sha256: Annotated[str, Form(pattern=r"^[0-9a-fA-F]{64}$")],
-    lease_generation: Annotated[int, Form()],
+    lease_generation: int,
+    name: str,
+    file: UploadFile,
+    sha256: str,
     db: DbSession,
     request: Request,
     response: Response,
@@ -168,7 +195,7 @@ def upload_attempt_file(
     if file.size is not None and file.size > settings.max_upload_bytes:
         raise ApiError(413, "PAYLOAD_TOO_LARGE", "Arquivo maior que o permitido.", "file")
     stored, created = jobs.save_attempt_file(
-        db, settings.data_dir, job_id, attempt_id, lease_generation, name, file.file, sha256
+        db, settings.data_dir, kind, item_id, attempt_id, lease_generation, name, file.file, sha256
     )
     response.status_code = 201 if created else 200
     return AttemptFileOut(
@@ -177,6 +204,49 @@ def upload_attempt_file(
         size_bytes=stored.size_bytes,
         sha256=stored.sha256,
         content_type=stored.content_type,
+    )
+
+
+@router.put("/jobs/{job_id}/attempts/{attempt_id}/files/{name}")
+def upload_attempt_file(
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    name: AttemptFileName,
+    file: Annotated[UploadFile, File()],
+    sha256: Sha256Form,
+    lease_generation: Annotated[int, Form()],
+    db: DbSession,
+    request: Request,
+    response: Response,
+) -> AttemptFileOut:
+    return _upload(
+        "video", job_id, attempt_id, lease_generation, name, file, sha256, db, request, response
+    )
+
+
+@router.put("/asset-tasks/{task_id}/attempts/{attempt_id}/files/{name}")
+def upload_asset_task_file(
+    task_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    name: AssetFileName,
+    file: Annotated[UploadFile, File()],
+    sha256: Sha256Form,
+    lease_generation: Annotated[int, Form()],
+    db: DbSession,
+    request: Request,
+    response: Response,
+) -> AttemptFileOut:
+    return _upload(
+        "asset_prepare",
+        task_id,
+        attempt_id,
+        lease_generation,
+        name,
+        file,
+        sha256,
+        db,
+        request,
+        response,
     )
 
 
@@ -228,7 +298,7 @@ def job_fail(job_id: uuid.UUID, body: FailIn, db: DbSession) -> FailOut:
 
 @router.post("/asset-tasks/{task_id}/complete")
 def asset_task_complete(
-    task_id: uuid.UUID, body: AttemptRef, db: DbSession, request: Request
+    task_id: uuid.UUID, body: AssetCompleteIn, db: DbSession, request: Request
 ) -> CompleteOut:
     task = jobs.complete_item(
         db,
@@ -237,6 +307,7 @@ def asset_task_complete(
         body.attempt_id,
         body.lease_generation,
         request.app.state.settings.data_dir,
+        asset_files=body.model_dump(include=set(jobs.ASSET_RESULT_FILES)),
     )
     return _complete_out(task)
 

@@ -1,4 +1,5 @@
 import hashlib
+import io
 import logging
 import threading
 import time
@@ -9,6 +10,7 @@ from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import Engine, func, select, text, update
 from sqlalchemy.orm import Session
 
@@ -110,10 +112,28 @@ def fail(client, path, item_id, attempt_id, generation, retryable, code="TRANSIE
     )
 
 
-def complete_task(client, task_id, attempt_id, generation):
+def prepared_files(client, task_id, attempt_id, generation) -> dict[str, str]:
+    """Envia recorte e prévias da tentativa: o complete de asset_prepare exige os três."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buffer, format="PNG")
+    png = buffer.getvalue()
+    ids = {}
+    for field, name in jobs.ASSET_RESULT_FILES.items():
+        response = client.put(
+            f"/internal/v1/asset-tasks/{task_id}/attempts/{attempt_id}/files/{name}",
+            files={"file": (name, png, "image/png")},
+            data={"sha256": sha(png), "lease_generation": str(generation)},
+            headers=WORKER,
+        )
+        assert response.status_code == 201, response.text
+        ids[field] = response.json()["id"]
+    return ids
+
+
+def complete_task(client, task_id, attempt_id, generation, files=None):
     return client.post(
         f"/internal/v1/asset-tasks/{task_id}/complete",
-        json={"attempt_id": str(attempt_id), "lease_generation": generation},
+        json={"attempt_id": str(attempt_id), "lease_generation": generation, **(files or {})},
         headers=WORKER,
     )
 
@@ -530,9 +550,10 @@ def test_asset_task_conclui_e_repete_com_o_mesmo_resultado(
 ):
     task_id = make_task()
     data = claim(client, "asset_prepare")
+    files = prepared_files(client, task_id, data["attempt_id"], 1)
 
-    first = complete_task(client, task_id, data["attempt_id"], 1)
-    again = complete_task(client, task_id, data["attempt_id"], 1)
+    first = complete_task(client, task_id, data["attempt_id"], 1, files)
+    again = complete_task(client, task_id, data["attempt_id"], 1, files)
 
     assert first.status_code == 200, first.text
     assert again.json() == first.json()
@@ -566,7 +587,8 @@ def test_asset_task_obsoleta_e_recusada_e_fail_reenfileira(
     )
     assert after.lease_until == current.lease_until
 
-    assert complete_task(client, task_id, b["attempt_id"], 2).json()["status"] == "ready"
+    files = prepared_files(client, task_id, b["attempt_id"], 2)
+    assert complete_task(client, task_id, b["attempt_id"], 2, files).json()["status"] == "ready"
 
 
 def test_rotas_de_publicacao_exigem_token_do_worker(client: TestClient, make_job, make_task):

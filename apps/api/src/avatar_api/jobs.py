@@ -7,6 +7,7 @@ Envio de arquivos, complete e fail só pela tentativa vigente; varredura de leas
 
 import hashlib
 import json
+import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -18,6 +19,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from avatar_api.assets import asset_dir
 from avatar_api.errors import ApiError
 from avatar_api.models import (
     AssetPrepareTask,
@@ -29,6 +31,7 @@ from avatar_api.models import (
     VideoJob,
 )
 from avatar_api.storage import resolve_path, save_stream
+from avatar_api.uploads import validate_image
 
 IDEMPOTENCY_KEY_MAX_CHARS = 128
 
@@ -385,10 +388,24 @@ ATTEMPT_FILE_TYPES: dict[str, str] = {
     "manifest.json": "application/json",
 }
 RESULT_FILE_NAME = "final.mp4"
+AssetFileName = Literal["prepared.png", "preview-9x16.png", "preview-16x9.png"]
+# Coluna do avatar preenchida no complete da preparação -> arquivo esperado da tentativa.
+ASSET_RESULT_FILES: dict[str, str] = {
+    "prepared_file_id": "prepared.png",
+    "preview_9x16_file_id": "preview-9x16.png",
+    "preview_16x9_file_id": "preview-16x9.png",
+}
 
 
 def attempt_dir(job_id: uuid.UUID, attempt_id: uuid.UUID) -> str:
     return f"jobs/{job_id}/{attempt_id}"
+
+
+def _item_attempt_dir(item: QueueItem, attempt_id: uuid.UUID) -> str:
+    """Vídeo em jobs/<job_id>/<attempt_id>; preparação em assets/<avatar_id>/<attempt_id>."""
+    if isinstance(item, VideoJob):
+        return attempt_dir(item.id, attempt_id)
+    return f"{asset_dir(item.avatar_id)}/{attempt_id}"
 
 
 def _existing_attempt_file(session: Session, relative_path: str, sha256: str) -> StoredFile | None:
@@ -401,41 +418,73 @@ def _existing_attempt_file(session: Session, relative_path: str, sha256: str) ->
     return existing
 
 
+def _save_png(
+    session: Session,
+    data_dir: Path,
+    directory: str,
+    name: str,
+    stream: BinaryIO,
+    sha256: str,
+    attempt_id: uuid.UUID,
+) -> StoredFile:
+    """Grava o arquivo da preparação só se for um PNG legível; a validação usa um temporário
+    fora de DATA_DIR, então a recusa não deixa nada no volume."""
+    with tempfile.TemporaryDirectory(prefix="asset-prepare-") as tmp_dir:
+        image = validate_image(stream, "file", Path(tmp_dir))
+        if image.content_type != "image/png":
+            raise ApiError(422, "UNSUPPORTED_FILE_TYPE", "Envie o arquivo em PNG.", "file")
+        with image.path.open("rb") as validated:
+            return save_stream(
+                session,
+                data_dir,
+                directory,
+                name,
+                validated,
+                sha256,
+                image.content_type,
+                attempt_id=attempt_id,
+            )
+
+
 def save_attempt_file(
     session: Session,
     data_dir: Path,
-    job_id: uuid.UUID,
+    kind: QueueKind,
+    item_id: uuid.UUID,
     attempt_id: uuid.UUID,
     lease_generation: int,
-    name: AttemptFileName,
+    name: AttemptFileName | AssetFileName,
     stream: BinaryIO,
     sha256: str,
 ) -> tuple[StoredFile, bool]:
-    """Grava um arquivo da tentativa vigente em jobs/<job_id>/<attempt_id>/<name>.
+    """Grava um arquivo da tentativa vigente no diretório da tentativa (ver _item_attempt_dir).
 
     Devolve o arquivo e se ele foi criado agora. A vigência é conferida com a linha travada,
     e a trava é solta antes de receber o conteúdo: um envio longo não pode segurar heartbeat
-    nem varredor. O envio não altera o job; só o complete publica, e ele exige a tentativa
-    vigente e o final.mp4 gravado por ela.
+    nem varredor. O envio não altera o item; só o complete publica, e ele exige a tentativa
+    vigente e os arquivos gravados por ela. Na preparação de avatar, o arquivo precisa ser PNG.
     """
     sha256 = sha256.lower()
-    directory = attempt_dir(job_id, attempt_id)
-    lock_current_attempt(session, "video", job_id, attempt_id, lease_generation)
+    item = lock_current_attempt(session, kind, item_id, attempt_id, lease_generation)
+    directory = _item_attempt_dir(item, attempt_id)
     existing = _existing_attempt_file(session, f"{directory}/{name}", sha256)
     session.commit()
     if existing is not None:
         return existing, False
     try:
-        stored = save_stream(
-            session,
-            data_dir,
-            directory,
-            name,
-            stream,
-            sha256,
-            ATTEMPT_FILE_TYPES[name],
-            attempt_id=attempt_id,
-        )
+        if kind == "video":
+            stored = save_stream(
+                session,
+                data_dir,
+                directory,
+                name,
+                stream,
+                sha256,
+                ATTEMPT_FILE_TYPES[name],
+                attempt_id=attempt_id,
+            )
+        else:
+            stored = _save_png(session, data_dir, directory, name, stream, sha256, attempt_id)
     except ApiError as exc:
         # Reenvio concorrente do mesmo arquivo: quem gravou primeiro vale.
         if exc.code != "FILE_EXISTS":
@@ -451,6 +500,19 @@ def _invalid_result(message: str) -> ApiError:
     return ApiError(422, "RESULT_FILE_INVALID", message, "result_file_id")
 
 
+def _written_by(stored: StoredFile | None, expected_path: str, attempt_id: uuid.UUID) -> bool:
+    return (
+        stored is not None
+        and stored.relative_path == expected_path
+        and stored.attempt_id == attempt_id
+    )
+
+
+def _intact(data_dir: Path, stored: StoredFile) -> bool:
+    path = resolve_path(data_dir, stored)
+    return path.is_file() and path.stat().st_size == stored.size_bytes
+
+
 def _own_result_file(
     session: Session,
     data_dir: Path,
@@ -461,12 +523,55 @@ def _own_result_file(
     """O resultado só vale se for o final.mp4 gravado por esta tentativa e presente no volume."""
     stored = session.get(StoredFile, result_file_id)
     expected_path = f"{attempt_dir(job_id, attempt_id)}/{RESULT_FILE_NAME}"
-    if stored is None or stored.relative_path != expected_path or stored.attempt_id != attempt_id:
+    if not _written_by(stored, expected_path, attempt_id):
         raise _invalid_result("O resultado precisa ser o final.mp4 enviado por esta tentativa.")
-    path = resolve_path(data_dir, stored)
-    if not path.is_file() or path.stat().st_size != stored.size_bytes:
+    if not _intact(data_dir, stored):
         raise _invalid_result("O final.mp4 desta tentativa não está íntegro no volume.")
     return stored
+
+
+def _invalid_asset_file(column: str, message: str) -> ApiError:
+    return ApiError(422, "INVALID_RESULT", message, column)
+
+
+def _publish_prepared_avatar(
+    session: Session,
+    data_dir: Path,
+    task: AssetPrepareTask,
+    attempt_id: uuid.UUID,
+    file_ids: dict[str, uuid.UUID | None],
+) -> None:
+    """Grava no avatar o recorte e as duas prévias e o deixa ativo, na transação do complete.
+
+    Cada arquivo precisa ser o de nome esperado gravado por esta tentativa e presente no
+    volume; senão 422 INVALID_RESULT e o avatar fica como estava.
+    """
+    directory = _item_attempt_dir(task, attempt_id)
+    for column, name in ASSET_RESULT_FILES.items():
+        file_id = file_ids.get(column)
+        stored = session.get(StoredFile, file_id) if file_id is not None else None
+        if not _written_by(stored, f"{directory}/{name}", attempt_id):
+            raise _invalid_asset_file(column, f"Informe o {name} enviado por esta tentativa.")
+        if not _intact(data_dir, stored):
+            raise _invalid_asset_file(column, f"O {name} desta tentativa não está íntegro.")
+    avatar = session.get(Avatar, task.avatar_id, with_for_update=True)
+    for column in ASSET_RESULT_FILES:
+        setattr(avatar, column, file_ids[column])
+    avatar.prepare_status = "ativo"
+    avatar.prepare_error = None
+
+
+def _same_result(
+    session: Session,
+    item: QueueItem,
+    result_file_id: uuid.UUID | None,
+    asset_files: dict[str, uuid.UUID | None],
+) -> bool:
+    """O complete repetido traz o mesmo resultado que a tentativa já publicou."""
+    if isinstance(item, VideoJob):
+        return item.result_file_id == result_file_id
+    avatar = session.get(Avatar, item.avatar_id)
+    return all(getattr(avatar, column) == asset_files.get(column) for column in ASSET_RESULT_FILES)
 
 
 def _finish_attempt(session: Session, item: QueueItem, outcome: str, **values: object) -> None:
@@ -487,12 +592,19 @@ def _requeue(item: QueueItem) -> None:
         item.stage = "waiting"
 
 
-def _mark_failed(item: QueueItem, error_code: str, error_message: str) -> None:
+def _mark_failed(session: Session, item: QueueItem, error_code: str, error_message: str) -> None:
+    """Falha definitiva; na preparação, o avatar fica em falha com a mensagem como motivo."""
     item.status = "failed"
     item.lease_until = None
     item.error_code = error_code
     item.error_message = error_message
     item.finished_at = func.now()
+    if isinstance(item, AssetPrepareTask):
+        session.execute(
+            update(Avatar)
+            .where(Avatar.id == item.avatar_id)
+            .values(prepare_status="falha", prepare_error=error_message)
+        )
 
 
 def _commit_item(session: Session, item: QueueItem) -> QueueItem:
@@ -512,19 +624,23 @@ def complete_item(
     result_file_id: uuid.UUID | None = None,
     stage_timings: dict[str, float] | None = None,
     peak_vram_mb: int | None = None,
+    asset_files: dict[str, uuid.UUID | None] | None = None,
 ) -> QueueItem:
     """Conclui o item pela tentativa vigente e faz commit.
 
     No vídeo, result_file_id, ready, finished_at e o outcome completed da tentativa vão na
-    mesma transação. O complete repetido pela tentativa que já concluiu devolve o mesmo
-    resultado sem alterar nada.
+    mesma transação. Na preparação, asset_files traz os ids de ASSET_RESULT_FILES, e o
+    avatar recebe os três arquivos e fica ativo na mesma transação que deixa a tarefa ready.
+    O complete repetido pela tentativa que já concluiu devolve o mesmo resultado sem alterar
+    nada.
     """
+    asset_files = asset_files or {}
     item, lease_alive = _lock_item(session, kind, item_id)
     if (
         item.status == "ready"
         and item.current_attempt_id == attempt_id
         and item.lease_generation == lease_generation
-        and (kind != "video" or item.result_file_id == result_file_id)
+        and _same_result(session, item, result_file_id, asset_files)
     ):
         session.commit()
         return item
@@ -534,6 +650,8 @@ def complete_item(
             raise _invalid_result("Informe o final.mp4 enviado por esta tentativa.")
         stored = _own_result_file(session, data_dir, item_id, attempt_id, result_file_id)
         item.result_file_id = stored.id
+    else:
+        _publish_prepared_avatar(session, data_dir, item, attempt_id, asset_files)
     item.status = "ready"
     item.lease_until = None
     item.finished_at = func.now()
@@ -564,7 +682,7 @@ def fail_item(
     if retryable and item.attempt < MAX_ATTEMPTS:
         _requeue(item)
     else:
-        _mark_failed(item, error_code, error_message)
+        _mark_failed(session, item, error_code, error_message)
     _finish_attempt(session, item, "failed", error_code=error_code, error_message=error_message)
     return _commit_item(session, item)
 
@@ -600,7 +718,7 @@ def sweep_expired_leases(session: Session) -> SweepResult:
                 _requeue(item)
                 requeued += 1
             else:
-                _mark_failed(item, WORKER_LOST, WORKER_LOST_MESSAGE)
+                _mark_failed(session, item, WORKER_LOST, WORKER_LOST_MESSAGE)
                 lost += 1
             _finish_attempt(session, item, "expired")
     session.commit()
