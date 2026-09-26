@@ -1,4 +1,4 @@
-// Peças visuais compartilhadas do contrato: ícones de traço (24 x 24), marca e erro de campo.
+// Peças visuais compartilhadas do contrato: ícones de traço (24 x 24), marca, iniciais e erro de campo.
 const PATHS = {
   avatar: (
     <>
@@ -47,6 +47,20 @@ const PATHS = {
     </>
   ),
   chev: <path d="m9 6 6 6-6 6" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
+  copy: (
+    <>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 7.5v.01" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -98,4 +112,14 @@ export function FieldError({ id, message }: { id: string; message: string }) {
       <span>{message}</span>
     </p>
   );
+}
+
+/** Iniciais do nome de exibição ou, sem ele, do username (e-mail). */
+export function initials(person: { display_name: string | null; username: string }): string {
+  const source = person.display_name?.trim() || person.username;
+  const words = source.split(/[\s@._-]+/).filter(Boolean);
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
 }

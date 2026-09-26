@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from "react-router";
 
 import { logout, onUnauthorized, restoreSession, type SessionUser } from "./api";
+import { Access } from "./screens/Access";
 import { Login } from "./screens/Login";
-import { BrandMark, BrandName, Icon, type IconName } from "./ui";
+import { BrandMark, BrandName, Icon, initials, type IconName } from "./ui";
 
 const HOME = "/avatares";
 
@@ -19,15 +20,6 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   },
   { title: "Acesso", items: [{ to: "/acesso", label: "Usuários e chaves", icon: "key" }] },
 ];
-
-function initials(user: SessionUser): string {
-  const source = user.display_name?.trim() || user.username;
-  const words = source.split(/[\s@._-]+/).filter(Boolean);
-  return words
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? "")
-    .join("");
-}
 
 function Shell({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -96,14 +88,14 @@ function Shell({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }
         </aside>
         {menuOpen && <div className="scrim" onClick={() => setMenuOpen(false)} />}
         <main className="main" id="main">
-          <Outlet />
+          <Outlet context={user} />
         </main>
       </div>
     </>
   );
 }
 
-// Telas da biblioteca e do acesso chegam nas próximas tarefas da fase; até lá a rota mostra o título.
+// Telas da biblioteca chegam nas próximas tarefas da fase; até lá a rota mostra o título.
 function PageHead({ title, description }: { title: string; description: string }) {
   return (
     <div className="page">
@@ -172,7 +164,7 @@ export function App() {
         <Route path="/avatares" element={<PageHead title="Avatares" description="Rostos e vozes disponíveis para novos vídeos." />} />
         <Route path="/cenarios" element={<PageHead title="Cenários" description="Fundos e enquadramentos para 9:16 e 16:9." />} />
         <Route path="/cenarios/novo" element={<PageHead title="Criar cenário" description="Escolha o fundo e enquadre o avatar nos dois formatos." />} />
-        <Route path="/acesso" element={<PageHead title="Usuários e chaves" description="Quem entra no painel e quais sistemas chamam a API." />} />
+        <Route path="/acesso" element={<Access />} />
         <Route path="*" element={<Navigate to={HOME} replace />} />
       </Route>
     </Routes>
