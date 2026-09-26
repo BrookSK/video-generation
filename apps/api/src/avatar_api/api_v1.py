@@ -2,17 +2,19 @@
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from avatar_api import assets
 from avatar_api.auth import CurrentApiKey, DbSession, require_api_key
 from avatar_api.errors import ApiError
 from avatar_api.jobs import IDEMPOTENCY_KEY_MAX_CHARS, JobRequester, NewVideoJob, create_video_job
-from avatar_api.models import StoredFile, VideoJob
+from avatar_api.models import Avatar, Scene, StoredFile, VideoJob
 from avatar_api.storage import resolve_path
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
@@ -21,6 +23,7 @@ IdempotencyKey = Annotated[
     str | None, Header(alias="Idempotency-Key", min_length=1, max_length=IDEMPOTENCY_KEY_MAX_CHARS)
 ]
 JobStatus = Literal["queued", "processing", "ready", "failed"]
+AspectRatio = Annotated[Literal["9:16", "16:9"], Query()]
 
 
 class JobCreatedOut(BaseModel):
@@ -112,3 +115,87 @@ def download_job(
     stored = db.get(StoredFile, job.result_file_id)
     path = resolve_path(request.app.state.settings.data_dir, stored)
     return FileResponse(path, media_type=stored.content_type, filename=f"video-{job.id}.mp4")
+
+
+# --- avatares e cenários ----------------------------------------------------------------
+# Só o que a criação de job aceita; sem id de arquivo, caminho do volume ou autorização.
+
+
+class PublicAvatarOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    voice: str
+    preview_url: str | None
+    created_at: datetime
+
+
+class PublicSceneOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    preview_url: str | None
+    created_at: datetime
+
+
+class AvatarListOut(BaseModel):
+    items: list[PublicAvatarOut]
+
+
+class SceneListOut(BaseModel):
+    items: list[PublicSceneOut]
+
+
+def _preview_url(prefix: str, item: Avatar | Scene) -> str | None:
+    return f"/api/v1/{prefix}/{item.id}/preview" if item.preview_9x16_file_id else None
+
+
+def _preview_response(path: Path, stored: StoredFile) -> FileResponse:
+    return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
+
+
+@router.get("/avatars")
+def list_avatars(db: DbSession) -> AvatarListOut:
+    return AvatarListOut(
+        items=[
+            PublicAvatarOut(
+                id=avatar.id,
+                name=avatar.name,
+                voice=avatar.voice,
+                preview_url=_preview_url("avatars", avatar),
+                created_at=avatar.created_at,
+            )
+            for avatar in assets.list_public_avatars(db)
+        ]
+    )
+
+
+@router.get("/scenes")
+def list_scenes(db: DbSession) -> SceneListOut:
+    return SceneListOut(
+        items=[
+            PublicSceneOut(
+                id=scene.id,
+                name=scene.name,
+                preview_url=_preview_url("scenes", scene),
+                created_at=scene.created_at,
+            )
+            for scene in assets.list_public_scenes(db)
+        ]
+    )
+
+
+@router.get("/avatars/{avatar_id}/preview")
+def avatar_preview(
+    avatar_id: uuid.UUID, db: DbSession, request: Request, aspect_ratio: AspectRatio = "9:16"
+) -> FileResponse:
+    data_dir = request.app.state.settings.data_dir
+    return _preview_response(
+        *assets.public_preview(db, data_dir, "avatar", avatar_id, aspect_ratio)
+    )
+
+
+@router.get("/scenes/{scene_id}/preview")
+def scene_preview(
+    scene_id: uuid.UUID, db: DbSession, request: Request, aspect_ratio: AspectRatio = "9:16"
+) -> FileResponse:
+    data_dir = request.app.state.settings.data_dir
+    return _preview_response(*assets.public_preview(db, data_dir, "scene", scene_id, aspect_ratio))

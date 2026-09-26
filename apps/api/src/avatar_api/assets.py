@@ -306,3 +306,52 @@ def scene_file(
         raise ApiError(404, "NOT_FOUND", "O cenário não tem esse arquivo.")
     stored = session.get(StoredFile, file_id)
     return resolve_path(data_dir, stored), stored
+
+
+# --- listagem pública -------------------------------------------------------------------
+
+# Prévia por formato; avatar e cenário usam as mesmas colunas.
+_PREVIEW_COLUMNS: dict[str, str] = {
+    "9:16": "preview_9x16_file_id",
+    "16:9": "preview_16x9_file_id",
+}
+
+
+def _public_avatars():
+    return select(Avatar).where(Avatar.prepare_status == "ativo", Avatar.archived_at.is_(None))
+
+
+def _public_scenes():
+    return select(Scene).where(Scene.archived_at.is_(None))
+
+
+def list_public_avatars(session: Session) -> list[Avatar]:
+    """Só avatares ativos e não arquivados: os únicos aceitos na criação de job."""
+    query = _public_avatars().order_by(Avatar.name, Avatar.created_at, Avatar.id)
+    return list(session.scalars(query))
+
+
+def list_public_scenes(session: Session) -> list[Scene]:
+    query = _public_scenes().order_by(Scene.name, Scene.created_at, Scene.id)
+    return list(session.scalars(query))
+
+
+def public_preview(
+    session: Session,
+    data_dir: Path,
+    kind: Literal["avatar", "scene"],
+    item_id: uuid.UUID,
+    aspect_ratio: str,
+) -> tuple[Path, StoredFile]:
+    """Prévia do formato pedido; item arquivado, inativo, inexistente ou sem prévia dá 404."""
+    if kind == "avatar":
+        item = session.scalar(_public_avatars().where(Avatar.id == item_id))
+        label = "Avatar"
+    else:
+        item = session.scalar(_public_scenes().where(Scene.id == item_id))
+        label = "Cenário"
+    file_id = getattr(item, _PREVIEW_COLUMNS[aspect_ratio]) if item is not None else None
+    if file_id is None:
+        raise ApiError(404, "NOT_FOUND", f"{label} não encontrado.")
+    stored = session.get(StoredFile, file_id)
+    return resolve_path(data_dir, stored), stored
