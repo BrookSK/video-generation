@@ -1,0 +1,41 @@
+[project]
+name = "avatar-tts-runtime"
+version = "0.1.0"
+description = "Runtime isolado do estágio de TTS (Chatterbox Multilingual pt-BR)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "chatterbox-tts==0.1.7",
+    "resemble-perth==1.0.1",
+    "torch==2.6.0",
+    "torchaudio==2.6.0",
+    # Dependências CUDA da wheel linux x86_64 do torch 2.6.0+cu126. O uv lê os metadados
+    # da wheel linux aarch64 do mesmo índice, que não as declara, e as perderia no lock.
+    "nvidia-cuda-nvrtc-cu12==12.6.77",
+    "nvidia-cuda-runtime-cu12==12.6.77",
+    "nvidia-cuda-cupti-cu12==12.6.80",
+    "nvidia-cudnn-cu12==9.5.1.17",
+    "nvidia-cublas-cu12==12.6.4.1",
+    "nvidia-cufft-cu12==11.3.0.4",
+    "nvidia-curand-cu12==10.3.7.77",
+    "nvidia-cusolver-cu12==11.7.1.2",
+    "nvidia-cusparse-cu12==12.5.4.2",
+    "nvidia-cusparselt-cu12==0.6.3",
+    "nvidia-nccl-cu12==2.21.5",
+    "nvidia-nvtx-cu12==12.6.77",
+    "nvidia-nvjitlink-cu12==12.6.85",
+    "triton==3.2.0",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchaudio = { index = "pytorch-cu126" }
+
+# CUDA 12.6: coberto pelo driver mínimo do host (560.28.03).
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
