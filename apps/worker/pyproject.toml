@@ -3,7 +3,10 @@ name = "avatar-worker"
 version = "0.1.0"
 description = "Worker de geração de vídeos com avatar"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "pillow==12.3.0",
+    "rembg[cpu]==2.0.85",
+]
 
 [dependency-groups]
 dev = [
