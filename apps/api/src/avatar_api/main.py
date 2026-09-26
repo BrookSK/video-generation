@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import FastAPI, Request
 
-from avatar_api import panel
+from avatar_api import api_v1, panel
 from avatar_api.config import Settings
 from avatar_api.errors import register_error_handlers
 
@@ -15,6 +15,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     register_error_handlers(app)
     app.include_router(panel.router)
+    app.include_router(api_v1.router)
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
