@@ -176,17 +176,31 @@ def _tables_and_revision(database_url: str) -> tuple[set[str], str | None]:
     return tables, revision
 
 
+def _user_columns(database_url: str) -> set[str]:
+    engine = create_db_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            return {column["name"] for column in inspect(connection).get_columns("users")}
+    finally:
+        engine.dispose()
+
+
 def test_migracao_do_zero_ate_head_e_downgrade_ate_base(empty_database_url, migrate):
     assert _tables_and_revision(empty_database_url) == (set(), None)
 
     migrate(empty_database_url)
+    assert _tables_and_revision(empty_database_url) == (TEN_TABLES, "0002")
+    assert "display_name" in _user_columns(empty_database_url)
+
+    migrate(empty_database_url, "0001", downgrade=True)
     assert _tables_and_revision(empty_database_url) == (TEN_TABLES, "0001")
+    assert "display_name" not in _user_columns(empty_database_url)
 
     migrate(empty_database_url, "base", downgrade=True)
     assert _tables_and_revision(empty_database_url) == (set(), None)
 
     migrate(empty_database_url)
-    assert _tables_and_revision(empty_database_url) == (TEN_TABLES, "0001")
+    assert _tables_and_revision(empty_database_url) == (TEN_TABLES, "0002")
 
 
 def test_modelos_coincidem_com_a_migracao(engine):

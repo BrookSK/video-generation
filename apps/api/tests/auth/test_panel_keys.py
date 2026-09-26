@@ -183,7 +183,7 @@ def test_login_certo_define_cookie_seguro_e_guarda_so_hashes(client, admin, sess
     response = login(client)
     assert response.status_code == 200
     body = response.json()
-    assert body["user"] == {"id": str(admin.id), "username": "admin"}
+    assert body["user"] == {"id": str(admin.id), "username": "admin", "display_name": None}
 
     cookie = response.headers["set-cookie"]
     token = re.match(r"avatar_session=([^;]+);", cookie).group(1)

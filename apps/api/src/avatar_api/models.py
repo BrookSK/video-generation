@@ -64,6 +64,7 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = _id()
     username: Mapped[str] = mapped_column(Text, unique=True)
+    display_name: Mapped[str | None] = mapped_column(Text)
     password_hash: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = _created_at()
     disabled_at: Mapped[datetime | None]

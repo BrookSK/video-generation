@@ -1,50 +1,78 @@
-"""Rotas do painel com cookie de sessão: login, logout e chaves de API."""
+"""Rotas do painel com cookie de sessão: login, sessão atual, pessoas e chaves de API."""
 
 import uuid
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Request, Response
-from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import func, select
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from avatar_api.auth import (
+    MIN_PASSWORD_LENGTH,
     SESSION_COOKIE,
     SESSION_COOKIE_PATH,
     CurrentPanelSession,
     DbSession,
+    UserCreationError,
     authenticate,
+    create_user,
     end_session,
     issue_api_key,
+    new_token,
+    sha256_hex,
     start_session,
 )
 from avatar_api.errors import ApiError
-from avatar_api.models import ApiKey, User
+from avatar_api.jobs import _without_nul
+from avatar_api.models import ApiKey, User, UserSession
 
 router = APIRouter(prefix="/panel")
 
+# Texto vindo do painel: NUL vira 422 aqui, antes de chegar ao PostgreSQL como erro 500.
+PanelText = Annotated[str, AfterValidator(_without_nul)]
+# As restrições vêm antes do validador de NUL; depois dele o pydantic deixaria de aplicá-las.
+_Name = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    AfterValidator(_without_nul),
+]
+
 
 class LoginIn(BaseModel):
-    username: str = Field(max_length=200)
-    password: str = Field(max_length=1024)
+    username: PanelText = Field(max_length=200)
+    password: PanelText = Field(max_length=1024)
 
 
-class LoginUser(BaseModel):
+class SessionUser(BaseModel):
     id: uuid.UUID
     username: str
+    display_name: str | None
 
 
-class LoginOut(BaseModel):
+class SessionOut(BaseModel):
     csrf_token: str
     expires_at: datetime
-    user: LoginUser
+    user: SessionUser
+
+
+class UserIn(BaseModel):
+    username: _Name
+    display_name: _Name
+    password: PanelText = Field(max_length=1024)
+
+
+class UserOut(BaseModel):
+    id: uuid.UUID
+    username: str
+    display_name: str | None
+    created_at: datetime
+    disabled_at: datetime | None
 
 
 class ApiKeyIn(BaseModel):
-    description: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
-    ]
+    description: _Name
 
 
 class ApiKeyOut(BaseModel):
@@ -63,7 +91,7 @@ class IssuedApiKeyOut(ApiKeyOut):
 
 
 @router.post("/auth/login")
-def login(body: LoginIn, request: Request, response: Response, db: DbSession) -> LoginOut:
+def login(body: LoginIn, request: Request, response: Response, db: DbSession) -> SessionOut:
     user = authenticate(db, body.username, body.password)
     if user is None:
         raise ApiError(401, "INVALID_CREDENTIALS", "Usuário ou senha inválidos.")
@@ -78,10 +106,29 @@ def login(body: LoginIn, request: Request, response: Response, db: DbSession) ->
         httponly=True,
         samesite="lax",
     )
-    return LoginOut(
+    return SessionOut(
         csrf_token=new.csrf_token,
         expires_at=new.row.expires_at,
-        user=LoginUser(id=user.id, username=user.username),
+        user=_session_user(user),
+    )
+
+
+def _session_user(user: User) -> SessionUser:
+    return SessionUser(id=user.id, username=user.username, display_name=user.display_name)
+
+
+@router.get("/auth/me")
+def me(identity: CurrentPanelSession, db: DbSession) -> SessionOut:
+    # O banco guarda só o hash do CSRF; recarregar o painel exige emitir outro, e o anterior
+    # deixa de valer.
+    csrf_token = new_token()
+    row = db.get(UserSession, identity.session_id, with_for_update=True)
+    row.csrf_hash = sha256_hex(csrf_token)
+    db.commit()
+    return SessionOut(
+        csrf_token=csrf_token,
+        expires_at=row.expires_at,
+        user=_session_user(db.get(User, identity.user_id)),
     )
 
 
@@ -95,6 +142,55 @@ def logout(
     response.delete_cookie(
         SESSION_COOKIE, path=SESSION_COOKIE_PATH, secure=True, httponly=True, samesite="lax"
     )
+
+
+def _user_out(user: User) -> UserOut:
+    return UserOut(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        created_at=user.created_at,
+        disabled_at=user.disabled_at,
+    )
+
+
+@router.get("/users")
+def list_users(_: CurrentPanelSession, db: DbSession) -> list[UserOut]:
+    users = db.scalars(select(User).order_by(User.created_at, User.username))
+    return [_user_out(user) for user in users]
+
+
+@router.post("/users", status_code=201)
+def add_user(body: UserIn, _: CurrentPanelSession, db: DbSession) -> UserOut:
+    try:
+        user = create_user(db, body.username, body.password)
+    except UserCreationError as exc:
+        field = "password" if len(body.password) < MIN_PASSWORD_LENGTH else "username"
+        raise ApiError(422, "VALIDATION_ERROR", str(exc), field) from exc
+    user.display_name = body.display_name
+    db.commit()
+    db.refresh(user)
+    return _user_out(user)
+
+
+@router.post("/users/{user_id}/disable")
+def disable_user(user_id: uuid.UUID, identity: CurrentPanelSession, db: DbSession) -> UserOut:
+    if user_id == identity.user_id:
+        raise ApiError(409, "CANNOT_DISABLE_SELF", "Você não pode remover o próprio acesso.")
+    user = db.get(User, user_id, with_for_update=True)
+    if user is None:
+        raise ApiError(404, "NOT_FOUND", "Pessoa não encontrada.")
+    if user.disabled_at is None:
+        user.disabled_at = func.now()
+    # Na mesma transação: nenhuma sessão aberta dela sobrevive à remoção do acesso.
+    db.execute(
+        update(UserSession)
+        .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=func.now())
+    )
+    db.commit()
+    db.refresh(user)
+    return _user_out(user)
 
 
 def _key_out(key: ApiKey, username: str) -> ApiKeyOut:
