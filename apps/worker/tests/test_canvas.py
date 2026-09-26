@@ -1,8 +1,11 @@
+import math
+from pathlib import Path
+
 import pytest
 from PIL import Image, ImageChops
 
 from avatar_worker import cutout
-from avatar_worker.canvas import compose_canvas
+from avatar_worker.canvas import bucket_frame, canvas_cut, compose_canvas, extend_to_bucket
 from avatar_worker.cutout import CutoutError, ensure_alpha
 
 BACKGROUND = "#1f2937"
@@ -94,6 +97,120 @@ def test_avatar_leaving_canvas_is_cut_at_the_edge_not_stretched():
 def test_invalid_background_color_is_refused():
     with pytest.raises(ValueError, match="#RRGGBB"):
         compose_canvas(_avatar(), "azul", FORMATS["9:16"][1], (1080, 1920))
+
+
+# Buckets de wan/utils/multitalk_utils.py do InfiniteTalk no commit 50aa0a94 do manifesto:
+# chave altura/largura, valor [[altura, largura], 1].
+ASPECT_RATIO_627 = {
+    "0.26": ([320, 1216], 1), "0.38": ([384, 1024], 1), "0.50": ([448, 896], 1),
+    "0.67": ([512, 768], 1), "0.82": ([576, 704], 1), "1.00": ([640, 640], 1),
+    "1.22": ([704, 576], 1), "1.50": ([768, 512], 1), "1.86": ([832, 448], 1),
+    "2.00": ([896, 448], 1), "2.50": ([960, 384], 1), "2.83": ([1088, 384], 1),
+    "3.60": ([1152, 320], 1), "3.80": ([1216, 320], 1), "4.00": ([1280, 320], 1),
+}  # fmt: skip
+ASPECT_RATIO_960 = {
+    "0.22": ([448, 2048], 1), "0.29": ([512, 1792], 1), "0.36": ([576, 1600], 1),
+    "0.45": ([640, 1408], 1), "0.55": ([704, 1280], 1), "0.63": ([768, 1216], 1),
+    "0.76": ([832, 1088], 1), "0.88": ([896, 1024], 1), "1.00": ([960, 960], 1),
+    "1.14": ([1024, 896], 1), "1.31": ([1088, 832], 1), "1.50": ([1152, 768], 1),
+    "1.58": ([1216, 768], 1), "1.82": ([1280, 704], 1), "1.91": ([1344, 704], 1),
+    "2.20": ([1408, 640], 1), "2.30": ([1472, 640], 1), "2.67": ([1536, 576], 1),
+    "2.89": ([1664, 576], 1), "3.62": ([1856, 512], 1), "3.75": ([1920, 512], 1),
+}  # fmt: skip
+PROFILES = {"infinitetalk-480": ASPECT_RATIO_627, "infinitetalk-720": ASPECT_RATIO_960}
+CANVAS = {"9:16": (1080, 1920), "16:9": (1920, 1080)}
+MODELS_DIR = Path(__file__).resolve().parents[3] / "docs" / "models"
+
+
+def _infinitetalk(source_size, profile):
+    """Oráculo do InfiniteTalk (wan/multitalk.py, generate): bucket de razão mais próxima e
+    resize_and_centercrop (escala max com ceil, corte central com round do torchvision).
+
+    Devolve o bucket (largura, altura) e quanto do retângulo de origem cada lado perde,
+    em pixels de origem: esquerda, topo, direita, base."""
+    src_w, src_h = source_size
+    table = PROFILES[profile]
+    ratio = src_h / src_w
+    closest = sorted(table, key=lambda key: abs(float(key) - ratio))[0]
+    target_h, target_w = table[closest][0]
+    scale = max(target_h / src_h, target_w / src_w)
+    final_h, final_w = math.ceil(scale * src_h), math.ceil(scale * src_w)
+    top = int(round((final_h - target_h) / 2.0))
+    left = int(round((final_w - target_w) / 2.0))
+    return (target_w, target_h), scale, (left, top, left + target_w, top + target_h)
+
+
+def _content_cut(frame_size, offset, canvas_size, profile):
+    bucket, scale, (left, top, right, bottom) = _infinitetalk(frame_size, profile)
+    x, y = offset
+    width, height = canvas_size
+    cuts = (
+        left / scale - x,
+        top / scale - y,
+        (x + width) - right / scale,
+        (y + height) - bottom / scale,
+    )
+    return bucket, cuts
+
+
+def _profile_bucket(profile, aspect):
+    bucket, _, _ = _infinitetalk(CANVAS[aspect], profile)
+    return bucket
+
+
+def test_recipe_buckets_are_infinitetalk_480_choice_for_each_canvas():
+    from avatar_worker.recipe import load_recipe
+
+    recipe = load_recipe(MODELS_DIR / "RECIPE-v1.json", MODELS_DIR / "MODEL_MANIFEST.json")
+    assert recipe.avatar.size == "infinitetalk-480"
+    for aspect, canvas in CANVAS.items():
+        assert recipe.canvas[aspect] == canvas
+        assert recipe.avatar.buckets[aspect] == _profile_bucket("infinitetalk-480", aspect)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("aspect", CANVAS)
+def test_canvas_sent_directly_to_render_loses_its_edges(profile, aspect):
+    canvas = CANVAS[aspect]
+    bucket, cuts = _content_cut(canvas, (0, 0), canvas, profile)
+
+    assert max(cuts) > 1
+    assert canvas_cut(canvas, (0, 0), canvas, bucket) == math.ceil(max(cuts))
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("aspect", CANVAS)
+def test_bucket_frame_keeps_whole_canvas_through_infinitetalk_crop(profile, aspect):
+    canvas = CANVAS[aspect]
+    bucket = _profile_bucket(profile, aspect)
+    frame = bucket_frame(canvas, bucket)
+    (frame_w, frame_h), (x, y) = frame.size, frame.offset
+
+    assert frame_w * bucket[1] == frame_h * bucket[0]
+    assert 0 <= x and x + canvas[0] <= frame_w
+    assert 0 <= y and y + canvas[1] <= frame_h
+    assert x % 2 == 0 and y % 2 == 0
+    chosen, cuts = _content_cut(frame.size, frame.offset, canvas, profile)
+    assert chosen == bucket
+    assert all(cut <= 0 for cut in cuts), cuts
+    assert frame.canvas_cut_px == 0
+    assert canvas_cut(frame.size, frame.offset, canvas, bucket) == 0
+
+
+def test_extend_to_bucket_pads_with_scene_color_and_keeps_canvas_pixels():
+    canvas = Image.new("RGB", (1080, 1920), RED)
+    canvas.paste(BLUE, (0, 0, 1, 1))
+    frame = bucket_frame((1080, 1920), (448, 832))
+
+    extended = extend_to_bucket(canvas, frame, BACKGROUND)
+
+    assert extended.size == frame.size
+    x, y = frame.offset
+    assert extended.getpixel((0, 0)) == BACKGROUND_RGB
+    assert extended.getpixel((frame.size[0] - 1, frame.size[1] - 1)) == BACKGROUND_RGB
+    assert extended.getpixel((x, y)) == BLUE
+    assert extended.getpixel((x + 1079, y + 1919)) == RED
+    assert extended.crop((x, y, x + 1080, y + 1920)).tobytes() == canvas.tobytes()
 
 
 class _FakeSession:

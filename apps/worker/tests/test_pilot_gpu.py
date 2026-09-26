@@ -66,6 +66,8 @@ def test_real_pilot_generates_both_formats_with_measurements(tmp_path):
         assert 0 < run["audio_seconds"] <= report["limits"]["max_audio_seconds"]
         assert run["watermark_detected"] is True
         assert run["frames"] > 0
+        assert run["canvas_cut_px"] == 0
+        assert summary["render_input"]["canvas_cut_px"] == 0
         assert (run["final"]["width"], run["final"]["height"]) == CANVAS[aspect]
         assert run["final"]["video_codec"] == "h264"
         assert run["final"]["pix_fmt"] == "yuv420p"

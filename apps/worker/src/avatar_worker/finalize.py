@@ -1,4 +1,4 @@
-"""Finalização por FFmpeg: render nativo no canvas com pad da cor do cenário e perfil DAT-005."""
+"""Finalização por FFmpeg: render nativo de volta ao canvas, pad da cor do cenário e DAT-005."""
 
 import json
 import re
@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from avatar_worker.canvas import BucketFrame
 from avatar_worker.recipe import Output
 
 _HEX_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
@@ -18,21 +19,26 @@ def build_finalize_args(
     canvas_size: tuple[int, int],
     pad_color: str,
     output: Output,
+    frame: BucketFrame,
 ) -> list[str]:
     """Monta a lista de argumentos do ffmpeg que junta render e áudio no canvas final.
 
-    O render é escalado para caber em ``canvas_size`` sem esticar e completado com pad
-    centralizado na cor ``pad_color`` (#RRGGBB). A duração segue as entradas: não há
-    ``-shortest``. A lista é para ``subprocess.run`` sem shell.
+    O render volta ao tamanho da tela estendida ``frame.size`` sem esticar, com pad
+    centralizado na cor ``pad_color`` (#RRGGBB) se a proporção diferir. Depois o crop tira
+    só a área estendida e devolve ``canvas_size`` a partir de ``frame.offset``. A duração
+    segue as entradas: não há ``-shortest``. A lista é para ``subprocess.run`` sem shell.
     """
     if not (isinstance(pad_color, str) and _HEX_COLOR.fullmatch(pad_color)):
         raise ValueError(f"cor do pad precisa ser #RRGGBB ({pad_color!r})")
     width, height = canvas_size
+    frame_w, frame_h = frame.size
+    left, top = frame.offset
     video_filter = ",".join(
         [
             f"fps={output.fps}",
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos",
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color={pad_color}",
+            f"scale={frame_w}:{frame_h}:force_original_aspect_ratio=decrease:flags=lanczos",
+            f"pad={frame_w}:{frame_h}:(ow-iw)/2:(oh-ih)/2:color={pad_color}",
+            f"crop={width}:{height}:{left}:{top}",
             "setsar=1",
             f"format={output.pix_fmt}",
         ]

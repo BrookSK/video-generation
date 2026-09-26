@@ -3,8 +3,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from avatar_worker import finalize
+from avatar_worker.canvas import BucketFrame, bucket_frame, extend_to_bucket
 from avatar_worker.finalize import build_finalize_args, probe_output, run_finalize
 from avatar_worker.recipe import load_recipe
 
@@ -13,7 +15,12 @@ RECIPE = load_recipe(MODELS_DIR / "RECIPE-v1.json", MODELS_DIR / "MODEL_MANIFEST
 PAD_COLOR = "#1f2937"
 PAD_RGB = (31, 41, 55)
 SECONDS = 2
-RENDER_SIZES = {"9:16": (448, 896), "16:9": (896, 448)}
+RED = (255, 0, 0)
+FRAMES = {
+    aspect: bucket_frame(RECIPE.canvas[aspect], RECIPE.avatar.buckets[aspect])
+    for aspect in RECIPE.canvas
+}
+FRAME_9X16 = BucketFrame(size=(1092, 2028), offset=(6, 54), canvas_cut_px=0)
 
 
 def _ffmpeg(*args):
@@ -27,6 +34,24 @@ def _render(path, size):
         "lavfi",
         "-i",
         f"color=c=red:s={width}x{height}:r=25:d={SECONDS}",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        str(path),
+    )
+
+
+def _render_from_image(path, image_path):
+    _ffmpeg(
+        "-loop",
+        "1",
+        "-framerate",
+        "25",
+        "-t",
+        str(SECONDS),
+        "-i",
+        str(image_path),
         "-c:v",
         "libx264",
         "-pix_fmt",
@@ -62,8 +87,8 @@ def _top_level_atoms(path):
     return atoms
 
 
-def _pixel(path, x, y):
-    frame = subprocess.run(
+def _frame_rgb(path):
+    return subprocess.run(
         [
             "ffmpeg",
             "-v",
@@ -82,6 +107,10 @@ def _pixel(path, x, y):
         check=True,
         capture_output=True,
     ).stdout
+
+
+def _pixel(path, x, y):
+    frame = _frame_rgb(path)
     width = probe_output(path)["width"]
     offset = (y * width + x) * 3
     return tuple(frame[offset : offset + 3])
@@ -89,7 +118,13 @@ def _pixel(path, x, y):
 
 def test_args_are_exact_list_without_shortest():
     args = build_finalize_args(
-        "render.mp4", "audio.wav", "final.mp4", (1080, 1920), PAD_COLOR, RECIPE.output
+        "render.mp4",
+        "audio.wav",
+        "final.mp4",
+        (1080, 1920),
+        PAD_COLOR,
+        RECIPE.output,
+        FRAME_9X16,
     )
 
     assert args == [
@@ -104,8 +139,9 @@ def test_args_are_exact_list_without_shortest():
         "-map",
         "1:a:0",
         "-vf",
-        "fps=25,scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,"
-        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=#1f2937,setsar=1,format=yuv420p",
+        "fps=25,scale=1092:2028:force_original_aspect_ratio=decrease:flags=lanczos,"
+        "pad=1092:2028:(ow-iw)/2:(oh-ih)/2:color=#1f2937,crop=1080:1920:6:54,"
+        "setsar=1,format=yuv420p",
         "-fps_mode",
         "cfr",
         "-c:v",
@@ -137,7 +173,9 @@ def test_invalid_color_raises_before_ffmpeg(monkeypatch, color):
 
     monkeypatch.setattr(finalize.subprocess, "run", fail)
     with pytest.raises(ValueError, match="#RRGGBB"):
-        build_finalize_args("r.mp4", "a.wav", "o.mp4", (1080, 1920), color, RECIPE.output)
+        build_finalize_args(
+            "r.mp4", "a.wav", "o.mp4", (1080, 1920), color, RECIPE.output, FRAME_9X16
+        )
 
 
 def test_run_finalize_uses_no_shell(monkeypatch):
@@ -152,14 +190,18 @@ def test_run_finalize_uses_no_shell(monkeypatch):
     assert calls[0][1]["check"] is True
 
 
-@pytest.mark.parametrize("aspect", RENDER_SIZES)
+@pytest.mark.parametrize("aspect", FRAMES)
 def test_finalize_exports_dat005_profile(tmp_path, aspect):
     canvas = RECIPE.canvas[aspect]
     render, audio, final = tmp_path / "render.mp4", tmp_path / "audio.wav", tmp_path / "final.mp4"
-    _render(render, RENDER_SIZES[aspect])
+    # Render mais estreito que o bucket: o pad cobre a diferença sem esticar.
+    bucket_w, bucket_h = RECIPE.avatar.buckets[aspect]
+    _render(render, (bucket_w * 3 // 4 // 2 * 2, bucket_h))
     _wav(audio)
 
-    run_finalize(build_finalize_args(render, audio, final, canvas, PAD_COLOR, RECIPE.output))
+    run_finalize(
+        build_finalize_args(render, audio, final, canvas, PAD_COLOR, RECIPE.output, FRAMES[aspect])
+    )
     profile = probe_output(final)
 
     assert (profile["width"], profile["height"]) == canvas
@@ -172,8 +214,41 @@ def test_finalize_exports_dat005_profile(tmp_path, aspect):
     assert profile["audio_duration"] == pytest.approx(SECONDS, abs=0.1)
     atoms = _top_level_atoms(final)
     assert atoms.index("moov") < atoms.index("mdat")
-    # O canto fica no pad: 9:16 escala para 960x1920 e 16:9 para 1920x960.
+    # O render estreito volta à tela com faixas de pad dos lados; o canto fica no pad.
     for channel, expected in zip(_pixel(final, 0, 0), PAD_RGB, strict=True):
         assert abs(channel - expected) <= 4
     center = _pixel(final, canvas[0] // 2, canvas[1] // 2)
     assert center[0] > 200 and center[1] < 60 and center[2] < 60
+
+
+@pytest.mark.parametrize("aspect", FRAMES)
+def test_render_of_bucket_frame_returns_whole_canvas_without_pad(tmp_path, aspect):
+    """Canvas todo vermelho estendido com pad, levado ao bucket como o render faz e finalizado:
+    o final tem o tamanho do canvas e nenhuma borda do canvas vira faixa de pad."""
+    canvas = RECIPE.canvas[aspect]
+    frame = FRAMES[aspect]
+    extended = extend_to_bucket(Image.new("RGB", canvas, RED), frame, PAD_COLOR)
+    rendered = tmp_path / "render.png"
+    extended.resize(RECIPE.avatar.buckets[aspect], Image.Resampling.BILINEAR).save(rendered)
+    render, audio, final = tmp_path / "render.mp4", tmp_path / "audio.wav", tmp_path / "final.mp4"
+    _render_from_image(render, rendered)
+    _wav(audio)
+
+    run_finalize(build_finalize_args(render, audio, final, canvas, PAD_COLOR, RECIPE.output, frame))
+
+    assert (probe_output(final)["width"], probe_output(final)["height"]) == canvas
+    width, height = canvas
+    pixels = _frame_rgb(final)
+    # A borda de 3 px mistura vermelho e pad pela interpolação da escala; o resto é canvas.
+    margin = 3
+    for x, y in (
+        (margin, height // 2),
+        (width - 1 - margin, height // 2),
+        (width // 2, margin),
+        (width // 2, height - 1 - margin),
+        (margin, margin),
+        (width - 1 - margin, height - 1 - margin),
+    ):
+        offset = (y * width + x) * 3
+        red, green, blue = pixels[offset : offset + 3]
+        assert red > 200 and green < 60 and blue < 60, (aspect, x, y, (red, green, blue))

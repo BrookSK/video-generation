@@ -21,6 +21,10 @@ TEXT = "Olá, eu sou a Mariana Albuquerque. Ligue para 0800 721 4400 até 15 de 
 STAGES = ["compose", "tts", "avatar", "finalize"]
 CANVAS = {"9:16": (1080, 1920), "16:9": (1920, 1080)}
 BUCKETS = {"9:16": [448, 832], "16:9": [896, 448]}
+RENDER_INPUT = {
+    "9:16": {"size": [1092, 2028], "canvas_offset": [6, 54], "canvas_cut_px": 0},
+    "16:9": {"size": [2160, 1080], "canvas_offset": [120, 0], "canvas_cut_px": 0},
+}
 
 # Runtimes falsos: recebem <stage.py> <request.json> <result.json> como o Python do runtime.
 # Registram início e fim em PILOT_LOG e sobem a VRAM falsa em PILOT_VRAM durante o trabalho.
@@ -156,6 +160,7 @@ def test_report_has_both_formats_with_stage_times_vram_peaks_and_hashes(env):
     for aspect, summary in report["formats"].items():
         assert summary["canvas"] == list(CANVAS[aspect])
         assert summary["bucket"] == BUCKETS[aspect]
+        assert summary["render_input"] == RENDER_INPUT[aspect]
         assert [run["load"] for run in summary["runs"]] == ["cold", "warm"]
         assert summary["seconds_per_video_second"]["cold"] > 0
         assert summary["seconds_per_video_second"]["warm"] > 0
@@ -171,6 +176,7 @@ def test_report_has_both_formats_with_stage_times_vram_peaks_and_hashes(env):
             assert run["audio_seconds"] == 1.0
             assert run["watermark_detected"] is True
             assert [run["native_width"], run["native_height"]] == BUCKETS[aspect]
+            assert run["canvas_cut_px"] == 0
             assert run["frames"] == 25
             final = Path(run["final_path"])
             assert final.name == "final.mp4"
@@ -198,8 +204,12 @@ def test_runtimes_receive_literal_text_voice_canvas_and_recipe(env):
     assert avatar["audio"] == tts["out_wav"]
     assert avatar["recipe_avatar"]["max_frame_num"] == 1000
     assert avatar["recipe_avatar"]["quant"] == "fp8"
-    with Image.open(avatar["image"]) as canvas:
+    # O render recebe o canvas estendido com a cor do cenário até a razão do bucket.
+    with Image.open(avatar["image"]) as render_input, Image.open(run_dir / "canvas.png") as canvas:
+        assert render_input.size == (2160, 1080)
         assert canvas.size == CANVAS["16:9"]
+        assert render_input.getpixel((0, 540)) == (31, 41, 55)
+        assert render_input.crop((120, 0, 2040, 1080)).tobytes() == canvas.tobytes()
 
 
 def test_failed_render_writes_error_and_exits_1_without_final(env, monkeypatch):
@@ -244,3 +254,19 @@ def test_composition_without_requested_format_is_rejected(env):
 def test_pad_color_is_scene_color_or_mean_of_background_image():
     assert pilot._pad_color("#1f2937") == "#1f2937"
     assert pilot._pad_color(Image.new("RGB", (8, 8), (10, 20, 30))) == "#0a141e"
+
+
+def test_render_that_would_cut_the_canvas_fails_avatar_stage(env, monkeypatch, tmp_path):
+    """Render nativo fora da razão da tela: o corte central tiraria canvas, o piloto recusa."""
+    body = FAKE_AVATAR.replace('(448, 832), "16:9": (896, 448)', '(448, 896), "16:9": (896, 448)')
+    args = list(env["args"])
+    args[args.index("--avatar-python") + 1] = str(_script(tmp_path / "fake-avatar-wide", body))
+
+    assert pilot.main([*args, "--formats", "9:16"]) == 1
+
+    report = _report(env["out"])
+    assert report["error"]["stage"] == "avatar"
+    assert "corta" in report["error"]["message"]
+    (run,) = report["formats"]["9:16"]["runs"]
+    assert run["canvas_cut_px"] > 0
+    assert list(env["out"].rglob("final.mp4")) == []

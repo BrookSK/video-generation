@@ -26,7 +26,13 @@ from typing import Any
 
 from PIL import Image
 
-from avatar_worker.canvas import compose_canvas
+from avatar_worker.canvas import (
+    BucketFrame,
+    bucket_frame,
+    canvas_cut,
+    compose_canvas,
+    extend_to_bucket,
+)
 from avatar_worker.cutout import ensure_alpha
 from avatar_worker.finalize import build_finalize_args, probe_output, run_finalize
 from avatar_worker.recipe import FORMATS, FPS, VOICES, Recipe, RecipeError, load_recipe
@@ -205,16 +211,23 @@ def _run_once(
     run: dict[str, Any],
     text: str,
     limits: dict[str, Any],
+    frame: BucketFrame,
 ) -> None:
     stages: dict[str, Any] = run["stages"]
     work_dir = args.out / aspect.replace(":", "x") / f"run-{run['run']}"
     work_dir.mkdir(parents=True, exist_ok=True)
     canvas_path = work_dir / "canvas.png"
+    render_input_path = work_dir / "render_input.png"
     final_path = work_dir / "final.mp4"
+    canvas_size = recipe.canvas[aspect]
+    pad_color = _pad_color(background)
 
     with meter.measure(stages, "compose"):
-        canvas = compose_canvas(avatar, background, args.composition[aspect], recipe.canvas[aspect])
+        canvas = compose_canvas(avatar, background, args.composition[aspect], canvas_size)
         canvas.save(canvas_path)
+        # O InfiniteTalk corta no centro o que sobra da razão do bucket; na razão exata não
+        # sobra nada do canvas para cortar.
+        extend_to_bucket(canvas, frame, pad_color).save(render_input_path)
 
     with meter.measure(stages, "tts"):
         tts = _run_stage(
@@ -242,7 +255,7 @@ def _run_once(
             args.avatar_python,
             AVATAR_STAGE,
             {
-                "image": str(canvas_path),
+                "image": str(render_input_path),
                 "audio": tts["audio_path"],
                 "format": aspect,
                 "models_dir": str(args.models),
@@ -261,15 +274,22 @@ def _run_once(
         run["native_width"] = render["native_width"]
         run["native_height"] = render["native_height"]
         run["frames"] = render["frames"]
+        native = (render["native_width"], render["native_height"])
+        run["canvas_cut_px"] = canvas_cut(frame.size, frame.offset, canvas_size, native)
+        if run["canvas_cut_px"]:
+            raise StageError(
+                f"render nativo {native[0]}x{native[1]} corta {run['canvas_cut_px']} px do canvas"
+            )
 
     with meter.measure(stages, "finalize"):
         finalize_args = build_finalize_args(
             render["video_path"],
             tts["audio_path"],
             final_path,
-            recipe.canvas[aspect],
-            _pad_color(background),
+            canvas_size,
+            pad_color,
             recipe.output,
+            frame,
         )
         try:
             run_finalize(finalize_args)
@@ -337,9 +357,15 @@ def run_pilot(args: argparse.Namespace, recipe: Recipe, text: str) -> int:
                     avatar = ensure_alpha(image)
             for aspect in args.formats:
                 runs: list[dict[str, Any]] = []
+                frame = bucket_frame(recipe.canvas[aspect], recipe.avatar.buckets[aspect])
                 report["formats"][aspect] = {
                     "canvas": list(recipe.canvas[aspect]),
                     "bucket": list(recipe.avatar.buckets[aspect]),
+                    "render_input": {
+                        "size": list(frame.size),
+                        "canvas_offset": list(frame.offset),
+                        "canvas_cut_px": frame.canvas_cut_px,
+                    },
                     "runs": runs,
                 }
                 for run_number in range(1, args.runs + 1):
@@ -350,7 +376,16 @@ def run_pilot(args: argparse.Namespace, recipe: Recipe, text: str) -> int:
                     }
                     runs.append(run)
                     _run_once(
-                        args, recipe, meter, avatar, background, aspect, run, text, report["limits"]
+                        args,
+                        recipe,
+                        meter,
+                        avatar,
+                        background,
+                        aspect,
+                        run,
+                        text,
+                        report["limits"],
+                        frame,
                     )
                 report["formats"][aspect]["seconds_per_video_second"] = _ratios(runs)
         except StageFailure as exc:
