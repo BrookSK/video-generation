@@ -1,9 +1,12 @@
 import asyncio
 import logging
+import tempfile
 import uuid
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from avatar_api import api_v1, internal_v1, jobs, panel
@@ -40,6 +43,27 @@ async def _sweep_forever(settings: Settings) -> None:
             )
 
 
+def _database_ready(database_url: str) -> bool:
+    try:
+        with get_engine(database_url).connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        logger.warning("readyz: banco de dados indisponível")
+        return False
+    return True
+
+
+def _storage_ready(settings: Settings) -> bool:
+    try:
+        # Cria e remove um arquivo temporário: prova que o volume aceita escrita.
+        with tempfile.NamedTemporaryFile(dir=settings.data_dir, prefix=".readyz-"):
+            pass
+    except OSError:
+        logger.warning("readyz: DATA_DIR sem escrita")
+        return False
+    return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     sweeper = asyncio.create_task(_sweep_forever(app.state.settings))
@@ -73,5 +97,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/readyz")
+    def readyz() -> JSONResponse:
+        database = _database_ready(settings.database_url)
+        storage = _storage_ready(settings)
+        ready = database and storage
+        body = {
+            "status": "ok" if ready else "unavailable",
+            "database": "ok" if database else "error",
+            "storage": "ok" if storage else "error",
+        }
+        return JSONResponse(body, status_code=200 if ready else 503)
 
     return app

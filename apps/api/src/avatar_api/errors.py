@@ -4,6 +4,7 @@ from http import HTTPStatus
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DBAPIError, OperationalError
 from starlette.exceptions import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -75,8 +76,28 @@ async def _unhandled_error(request: Request, exc: Exception) -> JSONResponse:
     return error_response(request, 500, "INTERNAL_ERROR", "Erro interno no servidor.")
 
 
+async def _database_error(request: Request, exc: DBAPIError) -> JSONResponse:
+    # Banco inalcançável ou conexão perdida vira 503; outros erros do banco seguem como 500.
+    if not (isinstance(exc, OperationalError) or exc.connection_invalidated):
+        return await _unhandled_error(request, exc)
+    # Só o tipo vai para o log: o texto do driver traz host, porta e usuário.
+    logger.warning(
+        "banco de dados indisponível (%s)",
+        type(exc.orig).__name__,
+        extra={"request_id": getattr(request.state, "request_id", "")},
+    )
+    return error_response(
+        request,
+        503,
+        "SERVICE_UNAVAILABLE",
+        "Serviço temporariamente indisponível. Tente novamente em instantes.",
+    )
+
+
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApiError, _api_error)
+    # OperationalError é subclasse de DBAPIError; o mesmo handler cobre as duas.
+    app.add_exception_handler(DBAPIError, _database_error)
     app.add_exception_handler(HTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(Exception, _unhandled_error)
