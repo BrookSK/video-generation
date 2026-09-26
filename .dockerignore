@@ -1,0 +1,13 @@
+.git
+.bianchini
+.claude
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/node_modules
+**/.env
+infra/compose/.env
+data

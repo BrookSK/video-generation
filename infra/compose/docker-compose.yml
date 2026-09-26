@@ -1,0 +1,54 @@
+# Stack base: postgres e api, sem nenhuma porta publicada no host.
+# Variáveis em infra/compose/.env (modelo em .env.example).
+name: avatar
+
+services:
+  postgres:
+    image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: avatar
+      POSTGRES_DB: avatar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      # A imagem 18 guarda os dados em /var/lib/postgresql/18/docker.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avatar -d avatar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      # POSTGRES_PASSWORD entra na URL sem escape: use só letras, dígitos, "-" e "_".
+      DATABASE_URL: postgresql://avatar:${POSTGRES_PASSWORD:-}@postgres:5432/avatar
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+      DATA_DIR: /data
+      APP_ENV: ${APP_ENV:-production}
+      LEASE_SECONDS: ${LEASE_SECONDS:-120}
+      SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-30}
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  pgdata:
+  appdata:
