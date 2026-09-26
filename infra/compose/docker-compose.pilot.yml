@@ -1,0 +1,23 @@
+# Piloto do pipeline no servidor GPU do cliente, sem rede e sem credenciais.
+# MODELS_DIR e PILOT_DIR em infra/compose/.env (modelo em .env.example). Uso:
+#   docker compose -f infra/compose/docker-compose.pilot.yml run --rm pilot --recipe ... --out /pilot/...
+name: avatar-pilot
+
+services:
+  pilot:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    image: avatar-worker:pilot
+    network_mode: none
+    entrypoint: ["python", "-m", "avatar_worker.pilot"]
+    volumes:
+      - ${MODELS_DIR:?defina MODELS_DIR com o caminho absoluto dos pesos}:/models:ro
+      - ${PILOT_DIR:?defina PILOT_DIR com o caminho absoluto das entradas e saídas do piloto}:/pilot
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
