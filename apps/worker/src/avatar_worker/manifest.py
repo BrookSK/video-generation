@@ -17,6 +17,7 @@ ALLOWED_LICENSES = frozenset(
 FORBIDDEN_TERMS = ("bria-rmbg", "insightface")
 KINDS = ("model", "code", "wheel")
 
+_COMPONENT_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 _COMMIT = re.compile(r"[0-9a-fA-F]{40}")
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 _EXACT_VERSION = re.compile(r"\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?(\+[0-9A-Za-z.]+)?")
@@ -80,6 +81,8 @@ def _check_component(index: int, component: Any) -> list[str]:
 
     if not isinstance(component.get("id"), str) or not component["id"]:
         violations.append(f"{label}: sem id")
+    elif not _COMPONENT_ID.fullmatch(component["id"]):
+        violations.append(f"{label}: id fora do formato {_COMPONENT_ID.pattern}")
     if kind not in KINDS:
         violations.append(f"{label}: kind {kind!r} fora de {', '.join(KINDS)}")
     violations += _check_https(label, component.get("url"))
@@ -183,10 +186,15 @@ def _sha256_of(path: Path) -> str:
 
 
 def _target(dest: Path, label: str, component_id: str, relative: str) -> Path:
+    if not _COMPONENT_ID.fullmatch(component_id):
+        raise PullError(f"{label}: id fora do formato {_COMPONENT_ID.pattern}")
     path = PurePosixPath(relative)
     if path.is_absolute() or ".." in path.parts:
         raise PullError(f"{label}: caminho fora de {component_id}/")
-    return dest / component_id / path
+    target = dest / component_id / path
+    if not target.resolve().is_relative_to(dest.resolve()):
+        raise PullError(f"{label}: caminho fora de {dest}")
+    return target
 
 
 def _download(url: str, part: Path, size: int) -> str:

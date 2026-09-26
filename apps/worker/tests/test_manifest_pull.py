@@ -229,3 +229,32 @@ def test_path_outside_component_is_refused(tmp_path, server, capsys, path):
     assert server.requests == []
     assert not (tmp_path / "fora.bin").exists()
     assert "caminho fora de synthetic-weights/" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("component_id", ["../x", "/x", "../../tmp/escape", "a/../../x"])
+def test_component_id_outside_dest_is_refused(tmp_path, server, component_id):
+    manifest = _manifest(server)
+    manifest["components"][0]["id"] = component_id
+    dest = tmp_path / "models"
+    dest.mkdir()
+
+    with pytest.raises(manifest_module.PullError, match="id fora do formato"):
+        manifest_module.pull(manifest, dest)
+
+    assert server.requests == []
+    assert not (tmp_path / "x").exists()
+    assert not (tmp_path / "escape").exists()
+
+
+def test_target_through_symlink_outside_dest_is_refused(tmp_path, server):
+    dest = tmp_path / "models"
+    dest.mkdir()
+    outside = tmp_path / "fora"
+    outside.mkdir()
+    (dest / "synthetic-weights").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(manifest_module.PullError, match="caminho fora de"):
+        manifest_module.pull(_manifest(server), dest)
+
+    assert server.requests == []
+    assert list(outside.iterdir()) == []

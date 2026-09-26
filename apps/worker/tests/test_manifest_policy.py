@@ -166,6 +166,10 @@ def test_module_entry_point_exit_codes(tmp_path):
         (_set_file(0, "url", "http://example.com/w"), "safetensors: url sem https"),
         (_duplicate_first, "infinitetalk-weights: id duplicado"),
         (_set(1, "id", ""), "componente #1: sem id"),
+        (_set(1, "id", "../x"), "../x: id fora do formato"),
+        (_set(1, "id", "/x"), "/x: id fora do formato"),
+        (_set(1, "id", "../../tmp/escape"), "../../tmp/escape: id fora do formato"),
+        (_set(1, "id", "Rembg"), "Rembg: id fora do formato"),
         (_set(1, "kind", "dataset"), "rembg: kind 'dataset' fora de model, code, wheel"),
         (
             _add_component("bria-rmbg", "https://huggingface.co/briaai/RMBG-2.0"),
