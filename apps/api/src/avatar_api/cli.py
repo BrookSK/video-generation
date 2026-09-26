@@ -2,6 +2,7 @@
 
 import argparse
 import getpass
+import json
 import sys
 
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from avatar_api.auth import UserCreationError, create_user
 from avatar_api.config import Settings
 from avatar_api.db import create_db_engine
+from avatar_api.devseed import seed_dev_catalog
 
 
 def _read_password(from_stdin: bool) -> str | None:
@@ -42,6 +44,24 @@ def _users_create(args: argparse.Namespace) -> int:
     return 0
 
 
+def _seed_dev(args: argparse.Namespace) -> int:
+    settings = Settings.from_env()
+    if settings.app_env != "development":
+        print("Erro: seed-dev só roda com APP_ENV=development.", file=sys.stderr)
+        return 1
+    if not settings.database_url:
+        print("Erro: defina DATABASE_URL para acessar o banco.", file=sys.stderr)
+        return 1
+    engine = create_db_engine(settings.database_url)
+    try:
+        with Session(engine, expire_on_commit=False) as db:
+            catalog = seed_dev_catalog(db, settings.data_dir)
+    finally:
+        engine.dispose()
+    print(json.dumps(catalog.as_json()))
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avatar-api", description="Administração da API.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -55,6 +75,10 @@ def _parser() -> argparse.ArgumentParser:
         help="Lê a senha da primeira linha da entrada padrão em vez de perguntar.",
     )
     create.set_defaults(handler=_users_create)
+    seed = commands.add_parser(
+        "seed-dev", help="Cria receita, avatar e cenário de desenvolvimento (APP_ENV=development)."
+    )
+    seed.set_defaults(handler=_seed_dev)
     return parser
 
 

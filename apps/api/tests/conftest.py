@@ -11,6 +11,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from avatar_api.config import Settings
 from avatar_api.db import create_db_engine, get_engine
+from avatar_api.devseed import DevCatalog, seed_dev_catalog
 from avatar_api.main import create_app
 from avatar_api.models import Base
 
@@ -80,6 +81,11 @@ def settings(database_url: str, tmp_path: Path) -> Settings:
         worker_token="token-do-worker-de-teste",
         app_env="test",
     )
+
+
+@pytest.fixture
+def seeded_catalog(session: Session, settings: Settings) -> DevCatalog:
+    return seed_dev_catalog(session, settings.data_dir)
 
 
 @pytest.fixture
