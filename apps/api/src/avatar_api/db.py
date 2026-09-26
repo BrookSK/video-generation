@@ -20,6 +20,8 @@ def create_db_engine(database_url: str) -> Engine:
     return create_engine(
         _psycopg_url(database_url),
         pool_pre_ping=True,
+        # Parâmetros SQL ficam fora das mensagens de erro: carregam texto da fala e hashes.
+        hide_parameters=True,
         connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS, "options": "-c timezone=UTC"},
     )
 

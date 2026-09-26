@@ -11,9 +11,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import Annotated, BinaryIO, Literal
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -33,8 +33,15 @@ from avatar_api.storage import resolve_path, save_stream
 IDEMPOTENCY_KEY_MAX_CHARS = 128
 
 
+def _without_nul(value: str) -> str:
+    # O PostgreSQL não aceita NUL em text; recusar aqui evita erro do banco no INSERT.
+    if "\x00" in value:
+        raise ValueError("texto com caractere NUL")
+    return value
+
+
 class NewVideoJob(BaseModel):
-    script_text: str
+    script_text: Annotated[str, AfterValidator(_without_nul)]
     avatar_id: uuid.UUID
     scene_id: uuid.UUID
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"

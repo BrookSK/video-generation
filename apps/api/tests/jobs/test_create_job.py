@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections.abc import Iterator
 
@@ -253,6 +254,31 @@ def test_campos_ausentes_ou_mal_formados_recusados(
     del incomplete["scene_id"]
     assert_error(post_job(client, auth, incomplete), 422, "VALIDATION_ERROR", "scene_id")
     assert job_count(session) == 0
+
+
+def test_texto_com_nul_recusado_com_422_sem_ir_para_o_log(
+    client: TestClient,
+    auth: dict[str, str],
+    seeded_catalog: DevCatalog,
+    session: Session,
+    caplog: pytest.LogCaptureFixture,
+):
+    secret = "fala sigilosa do cliente"
+    caplog.set_level(logging.DEBUG)
+
+    response = post_job(client, auth, body(seeded_catalog, script_text=f"{secret}\u0000"))
+
+    assert_error(response, 422, "VALIDATION_ERROR", "script_text")
+    assert secret not in response.text
+    assert job_count(session) == 0
+    for record in caplog.records:
+        assert secret not in record.getMessage()
+        assert secret not in (record.exc_text or "")
+    assert secret not in caplog.text
+
+
+def test_engine_esconde_parametros_sql_nos_erros(other_engine: Engine):
+    assert other_engine.hide_parameters is True
 
 
 def test_sem_receita_vigente_responde_503(
