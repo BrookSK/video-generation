@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Worker de geração de vídeos com avatar"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "httpx==0.28.1",
     "pillow==12.3.0",
     "rembg[cpu]==2.0.85",
 ]
