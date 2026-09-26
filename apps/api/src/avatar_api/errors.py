@@ -79,7 +79,15 @@ async def _unhandled_error(request: Request, exc: Exception) -> JSONResponse:
 async def _database_error(request: Request, exc: DBAPIError) -> JSONResponse:
     # Banco inalcançável ou conexão perdida vira 503; outros erros do banco seguem como 500.
     if not (isinstance(exc, OperationalError) or exc.connection_invalidated):
-        return await _unhandled_error(request, exc)
+        # Só tipo e sqlstate vão para o log: o DETAIL do PostgreSQL ("Failing row contains")
+        # pode trazer valores da linha, como o texto da fala.
+        logger.error(
+            "erro de banco de dados (%s, sqlstate %s)",
+            type(exc.orig).__name__,
+            getattr(exc.orig, "sqlstate", None),
+            extra={"request_id": getattr(request.state, "request_id", "")},
+        )
+        return error_response(request, 500, "INTERNAL_ERROR", "Erro interno no servidor.")
     # Só o tipo vai para o log: o texto do driver traz host, porta e usuário.
     logger.warning(
         "banco de dados indisponível (%s)",

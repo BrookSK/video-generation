@@ -1,14 +1,18 @@
-"""Rotas do painel com cookie de sessão: login, sessão atual, pessoas e chaves de API."""
+"""Rotas do painel com cookie de sessão: login, sessão atual, pessoas, chaves e avatares."""
 
+import tempfile
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, File, Form, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from avatar_api import assets
 from avatar_api.auth import (
     MIN_PASSWORD_LENGTH,
     SESSION_COOKIE,
@@ -26,7 +30,8 @@ from avatar_api.auth import (
 )
 from avatar_api.errors import ApiError
 from avatar_api.jobs import _without_nul
-from avatar_api.models import ApiKey, User, UserSession
+from avatar_api.models import VOICES, ApiKey, Avatar, User, UserSession
+from avatar_api.uploads import validate_image
 
 router = APIRouter(prefix="/panel")
 
@@ -36,6 +41,12 @@ PanelText = Annotated[str, AfterValidator(_without_nul)]
 _Name = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    AfterValidator(_without_nul),
+]
+
+_AssetName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=80),
     AfterValidator(_without_nul),
 ]
 
@@ -88,6 +99,17 @@ class ApiKeyOut(BaseModel):
 
 class IssuedApiKeyOut(ApiKeyOut):
     key: str
+
+
+class AvatarOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    voice: str
+    status: assets.AvatarStatus
+    prepare_error: str | None
+    authorized_at: datetime | None
+    created_at: datetime
+    archived_at: datetime | None
 
 
 @router.post("/auth/login")
@@ -251,3 +273,74 @@ def revoke_api_key(
         key.revoked_at = func.now()
     db.commit()
     return _load_key(db, key_id)
+
+
+# --- avatares ---------------------------------------------------------------------------
+
+
+def _avatar_out(avatar: Avatar) -> AvatarOut:
+    return AvatarOut(
+        id=avatar.id,
+        name=avatar.name,
+        voice=avatar.voice,
+        status=assets.avatar_status(avatar),
+        prepare_error=avatar.prepare_error,
+        authorized_at=avatar.authorized_at,
+        created_at=avatar.created_at,
+        archived_at=avatar.archived_at,
+    )
+
+
+@router.get("/avatars")
+def list_avatars(
+    _: CurrentPanelSession, db: DbSession, include_archived: bool = False
+) -> list[AvatarOut]:
+    return [_avatar_out(avatar) for avatar in assets.list_avatars(db, include_archived)]
+
+
+@router.post("/avatars", status_code=201)
+def create_avatar(
+    name: Annotated[_AssetName, Form()],
+    file: Annotated[UploadFile, File()],
+    identity: CurrentPanelSession,
+    db: DbSession,
+    request: Request,
+    voice: Annotated[str | None, Form()] = None,
+    authorization_confirmed: Annotated[bool | None, Form()] = None,
+) -> AvatarOut:
+    if voice not in VOICES:
+        raise ApiError(422, "VALIDATION_ERROR", "Escolha a voz do avatar.", "voice")
+    if authorization_confirmed is not True:
+        raise ApiError(
+            422, "VALIDATION_ERROR", "Confirme a autorização de uso da imagem.", "authorization"
+        )
+    # O temporário da validação fica fora de DATA_DIR: recusa não deixa nada no volume.
+    with tempfile.TemporaryDirectory(prefix="avatar-upload-") as tmp_dir:
+        image = validate_image(file.file, "file", Path(tmp_dir))
+        avatar = assets.create_avatar(
+            db, request.app.state.settings.data_dir, identity.user_id, name, voice, image
+        )
+    return _avatar_out(avatar)
+
+
+# Sem PUT nem PATCH: asset salvo não muda; para trocar, arquiva e cadastra outro.
+@router.get("/avatars/{avatar_id}")
+def get_avatar(avatar_id: uuid.UUID, _: CurrentPanelSession, db: DbSession) -> AvatarOut:
+    return _avatar_out(assets.get_avatar(db, avatar_id))
+
+
+@router.post("/avatars/{avatar_id}/archive")
+def archive_avatar(avatar_id: uuid.UUID, _: CurrentPanelSession, db: DbSession) -> AvatarOut:
+    return _avatar_out(assets.archive_avatar(db, avatar_id))
+
+
+@router.get("/avatars/{avatar_id}/files/{kind}")
+def avatar_file(
+    avatar_id: uuid.UUID,
+    kind: assets.AvatarFileKind,
+    _: CurrentPanelSession,
+    db: DbSession,
+    request: Request,
+) -> FileResponse:
+    path, stored = assets.avatar_file(db, request.app.state.settings.data_dir, avatar_id, kind)
+    return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})

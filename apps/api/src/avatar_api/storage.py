@@ -8,8 +8,9 @@ import uuid
 from pathlib import Path
 from typing import BinaryIO
 
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, SessionTransaction
 
 from avatar_api.errors import ApiError
 from avatar_api.models import StoredFile
@@ -17,6 +18,7 @@ from avatar_api.models import StoredFile
 CHUNK_BYTES = 1024 * 1024
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_UNCOMMITTED = "avatar_api.storage.uncommitted"
 
 
 class StoragePathError(ValueError):
@@ -42,6 +44,25 @@ def _fsync_dir(directory: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _forget_uncommitted(session: Session) -> None:
+    session.info.pop(_UNCOMMITTED, None)
+
+
+def _discard_uncommitted(session: Session, transaction: SessionTransaction) -> None:
+    # Transação principal encerrada sem commit (rollback ou close): o arquivo não vale.
+    if transaction.parent is None:
+        for path in session.info.pop(_UNCOMMITTED, []):
+            path.unlink(missing_ok=True)
+
+
+def _discard_unless_committed(session: Session, path: Path) -> None:
+    """Apaga o arquivo se a transação da sessão terminar sem commit."""
+    if not event.contains(session, "after_commit", _forget_uncommitted):
+        event.listen(session, "after_commit", _forget_uncommitted)
+        event.listen(session, "after_transaction_end", _discard_uncommitted)
+    session.info.setdefault(_UNCOMMITTED, []).append(path)
 
 
 def _copy_to_temp(directory: Path, name: str, stream: BinaryIO) -> tuple[Path, str, int]:
@@ -73,11 +94,15 @@ def save_stream(
     expected_sha256: str,
     content_type: str,
     attempt_id: uuid.UUID | None = None,
+    *,
+    commit: bool = True,
 ) -> StoredFile:
     """Grava o fluxo em relative_dir/name dentro de DATA_DIR e cria a linha de stored_files.
 
     O conteúdo vai para um temporário no mesmo diretório; só com o SHA-256 igual ao
     declarado ele é sincronizado e renomeado para o nome final, e a linha é confirmada.
+    Com commit=False o commit fica com o chamador, na mesma transação das linhas que
+    dependem do arquivo; se ela terminar sem commit, o arquivo final é apagado.
     """
     expected = expected_sha256.strip().lower()
     if not _SHA256.fullmatch(expected):
@@ -122,7 +147,10 @@ def save_stream(
         raise
     try:
         _fsync_dir(directory)
-        session.commit()
+        if commit:
+            session.commit()
+        else:
+            _discard_unless_committed(session, final)
     except BaseException:
         session.rollback()
         final.unlink(missing_ok=True)
