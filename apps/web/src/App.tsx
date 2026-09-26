@@ -1,0 +1,180 @@
+import { useEffect, useState } from "react";
+import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from "react-router";
+
+import { logout, onUnauthorized, restoreSession, type SessionUser } from "./api";
+import { Login } from "./screens/Login";
+import { BrandMark, BrandName, Icon, type IconName } from "./ui";
+
+const HOME = "/avatares";
+
+type NavItem = { to: string; label: string; icon: IconName };
+
+const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+  {
+    title: "Biblioteca",
+    items: [
+      { to: "/avatares", label: "Avatares", icon: "avatar" },
+      { to: "/cenarios", label: "Cenários", icon: "scene" },
+    ],
+  },
+  { title: "Acesso", items: [{ to: "/acesso", label: "Usuários e chaves", icon: "key" }] },
+];
+
+function initials(user: SessionUser): string {
+  const source = user.display_name?.trim() || user.username;
+  const words = source.split(/[\s@._-]+/).filter(Boolean);
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function Shell({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => setMenuOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
+
+  return (
+    <>
+      <header className="topbar">
+        <button
+          className="icon-btn"
+          type="button"
+          aria-label="Abrir menu"
+          aria-expanded={menuOpen}
+          aria-controls="side-nav"
+          onClick={() => setMenuOpen(true)}
+        >
+          <Icon name="menu" />
+        </button>
+        <NavLink className="brand" to={HOME}>
+          <BrandMark />
+          <BrandName sub={false} />
+        </NavLink>
+      </header>
+      <div className="shell">
+        <aside id="side-nav" className={menuOpen ? "side is-open" : "side"} aria-label="Navegação principal">
+          <NavLink className="brand" to={HOME}>
+            <BrandMark />
+            <BrandName />
+          </NavLink>
+          <nav className="nav">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.title} className="nav-section">
+                <div className="nav-group">{group.title}</div>
+                {group.items.map((item) => (
+                  <NavLink key={item.to} to={item.to} title={item.label}>
+                    <Icon name={item.icon} />
+                    <span className="label">{item.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <div className="side-foot">
+            <span className="initials" aria-hidden="true">
+              {initials(user)}
+            </span>
+            <div className="who">
+              <b>{user.display_name || user.username}</b>
+              <span>{user.username}</span>
+            </div>
+            <button className="icon-btn" type="button" aria-label="Sair" title="Sair" onClick={onSignOut}>
+              <Icon name="logout" />
+            </button>
+          </div>
+        </aside>
+        {menuOpen && <div className="scrim" onClick={() => setMenuOpen(false)} />}
+        <main className="main" id="main">
+          <Outlet />
+        </main>
+      </div>
+    </>
+  );
+}
+
+// Telas da biblioteca e do acesso chegam nas próximas tarefas da fase; até lá a rota mostra o título.
+function PageHead({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1>{title}</h1>
+          <p>{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RequireSession({ user, onSignOut }: { user: SessionUser | null; onSignOut: () => void }) {
+  const location = useLocation();
+  if (!user) {
+    return <Navigate to="/entrar" replace state={{ from: location.pathname }} />;
+  }
+  return <Shell user={user} onSignOut={onSignOut} />;
+}
+
+function SignIn({ user, onSignedIn }: { user: SessionUser | null; onSignedIn: (user: SessionUser) => void }) {
+  const location = useLocation();
+  if (user) {
+    const from = (location.state as { from?: string } | null)?.from;
+    return <Navigate to={from && from !== "/entrar" ? from : HOME} replace />;
+  }
+  return <Login onSignedIn={onSignedIn} />;
+}
+
+export function App() {
+  // undefined: ainda conferindo o cookie; null: sem sessão.
+  const [user, setUser] = useState<SessionUser | null | undefined>(undefined);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+    restoreSession()
+      .then((restored) => active && setUser(restored))
+      .catch(() => active && setUser(null));
+    const stop = onUnauthorized(() => setUser(null));
+    return () => {
+      active = false;
+      stop();
+    };
+  }, []);
+
+  async function signOut() {
+    try {
+      await logout();
+    } catch {
+      // Sessão já encerrada no servidor ou sem rede: o painel sai do mesmo jeito.
+    }
+    setUser(null);
+    navigate("/entrar", { replace: true });
+  }
+
+  if (user === undefined) {
+    return <div className="boot" aria-busy="true" />;
+  }
+
+  return (
+    <Routes>
+      <Route path="/entrar" element={<SignIn user={user} onSignedIn={setUser} />} />
+      <Route element={<RequireSession user={user} onSignOut={signOut} />}>
+        <Route path="/avatares" element={<PageHead title="Avatares" description="Rostos e vozes disponíveis para novos vídeos." />} />
+        <Route path="/cenarios" element={<PageHead title="Cenários" description="Fundos e enquadramentos para 9:16 e 16:9." />} />
+        <Route path="/cenarios/novo" element={<PageHead title="Criar cenário" description="Escolha o fundo e enquadre o avatar nos dois formatos." />} />
+        <Route path="/acesso" element={<PageHead title="Usuários e chaves" description="Quem entra no painel e quais sistemas chamam a API." />} />
+        <Route path="*" element={<Navigate to={HOME} replace />} />
+      </Route>
+    </Routes>
+  );
+}
