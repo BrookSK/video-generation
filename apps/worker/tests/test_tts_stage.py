@@ -3,8 +3,10 @@ import hashlib
 import importlib.util
 import json
 import os
+import socket
 import sys
 import tomllib
+import types
 import wave
 from pathlib import Path
 
@@ -200,3 +202,93 @@ def test_stage_module_imports_only_stdlib_at_top_level():
         elif isinstance(node, ast.ImportFrom):
             modules.add(node.module.split(".")[0])
     assert modules <= sys.stdlib_module_names
+
+
+class NetworkGuard:
+    """Registra e recusa qualquer tentativa de DNS ou conexão durante o teste."""
+
+    def __init__(self, monkeypatch):
+        self.attempts = []
+
+        def refuse(name):
+            def blocked(*args, **kwargs):
+                self.attempts.append((name, args))
+                raise OSError(f"rede bloqueada no teste: {name}")
+
+            return blocked
+
+        monkeypatch.setattr(socket, "getaddrinfo", refuse("getaddrinfo"))
+        monkeypatch.setattr(socket, "create_connection", refuse("create_connection"))
+        monkeypatch.setattr(socket.socket, "connect", refuse("connect"))
+
+
+def _fake_chatterbox(monkeypatch):
+    """Instala chatterbox e spacy_pkuseg falsos com o mesmo caminho de inicialização da 0.1.7.
+
+    from_local cria o conversor chinês para qualquer idioma; _init_segmenter importa
+    spacy_pkuseg e chama pkuseg(), que baixa o modelo; só ImportError é tratado.
+    """
+    calls = {"pkuseg": 0, "ckpt_files": None}
+
+    def pkuseg():
+        calls["pkuseg"] += 1
+        socket.create_connection(("github.com", 443))
+
+    class ChineseCangjieConverter:
+        def __init__(self):
+            try:
+                from spacy_pkuseg import pkuseg as segmenter_factory
+
+                self.segmenter = segmenter_factory()
+            except ImportError:
+                self.segmenter = None
+
+    class ChatterboxMultilingualTTS:
+        def __init__(self, converter):
+            self.converter = converter
+
+        @classmethod
+        def from_local(cls, ckpt_dir, device):
+            calls["ckpt_files"] = sorted(p.name for p in Path(ckpt_dir).iterdir() if p.is_file())
+            return cls(ChineseCangjieConverter())
+
+    pkuseg_module = types.ModuleType("spacy_pkuseg")
+    pkuseg_module.pkuseg = pkuseg
+    mtl_tts = types.ModuleType("chatterbox.mtl_tts")
+    mtl_tts.ChatterboxMultilingualTTS = ChatterboxMultilingualTTS
+    monkeypatch.setitem(sys.modules, "spacy_pkuseg", pkuseg_module)
+    monkeypatch.setitem(sys.modules, "chatterbox", types.ModuleType("chatterbox"))
+    monkeypatch.setitem(sys.modules, "chatterbox.mtl_tts", mtl_tts)
+    return calls
+
+
+def _checkpoints(tmp_path):
+    models_dir = tmp_path / "models"
+    for component, filename in tts_stage.CHECKPOINT_FILES.values():
+        path = models_dir / component / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"checkpoint sintetico")
+    return models_dir
+
+
+def test_model_load_for_pt_does_not_call_pkuseg_nor_open_connection(tmp_path, monkeypatch):
+    calls = _fake_chatterbox(monkeypatch)
+    network = NetworkGuard(monkeypatch)
+
+    model = tts_stage.load_model(_checkpoints(tmp_path), "pt", "cpu")
+
+    assert calls["pkuseg"] == 0
+    assert network.attempts == []
+    assert model.converter.segmenter is None
+    assert calls["ckpt_files"] == sorted(tts_stage.CHECKPOINT_FILES)
+
+
+def test_segmenter_stays_enabled_only_for_zh(tmp_path, monkeypatch):
+    calls = _fake_chatterbox(monkeypatch)
+    network = NetworkGuard(monkeypatch)
+
+    with pytest.raises(OSError, match="rede bloqueada"):
+        tts_stage.load_model(_checkpoints(tmp_path), "zh", "cpu")
+
+    assert calls["pkuseg"] == 1
+    assert network.attempts[0][0] == "create_connection"

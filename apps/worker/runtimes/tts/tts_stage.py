@@ -112,20 +112,39 @@ def write_wav(path: Path, synthesis: Synthesis) -> float:
     return len(synthesis.pcm16) / 2 / SAMPLE_RATE
 
 
-def chatterbox_synthesize(
-    text: str, language: str, voice: Path | None, models_dir: Path
-) -> Synthesis:
-    import torch
+def block_chinese_segmenter(language: str) -> None:
+    """Impede que o carregador baixe o modelo do segmentador chinês.
+
+    Na 0.1.7, from_local cria ChineseCangjieConverter para qualquer idioma, e ele chama
+    spacy_pkuseg.pkuseg(), que baixa spacy_ontonotes.zip do GitHub quando falta o arquivo
+    em ~/.pkuseg. O segmentador só é usado com language_id "zh". Com o import bloqueado, o
+    próprio chatterbox cai no ramo de ImportError e segue com segmenter None, sem rede.
+    """
+    if language != "zh":
+        sys.modules["spacy_pkuseg"] = None
+
+
+def load_model(models_dir: Path, language: str, device: str) -> Any:
+    """Monta o diretório de checkpoint a partir de /models e carrega o modelo sem rede."""
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    block_chinese_segmenter(language)
     with tempfile.TemporaryDirectory(prefix="chatterbox-ckpt-") as ckpt_dir:
         for name, (component, filename) in CHECKPOINT_FILES.items():
             source = models_dir / component / filename
             if not source.is_file():
                 raise StageError(f"checkpoint ausente: {source}")
             (Path(ckpt_dir) / name).symlink_to(source.resolve())
-        model = ChatterboxMultilingualTTS.from_local(ckpt_dir, device)
+        return ChatterboxMultilingualTTS.from_local(ckpt_dir, device)
+
+
+def chatterbox_synthesize(
+    text: str, language: str, voice: Path | None, models_dir: Path
+) -> Synthesis:
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = load_model(models_dir, language, device)
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
     prompt = str(voice) if voice else None
