@@ -1,0 +1,64 @@
+[project]
+name = "avatar-render-runtime"
+version = "0.1.0"
+description = "Runtime isolado do estágio de avatar (InfiniteTalk single sobre Wan2.1-I2V-14B-480P)"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    # requirements.txt do InfiniteTalk no commit 50aa0a94 do manifesto, em versões exatas.
+    "opencv-python==4.11.0.86",
+    "diffusers==0.35.1",
+    "transformers==4.55.4",
+    "tokenizers==0.21.4",
+    "accelerate==1.10.0",
+    "tqdm==4.67.1",
+    "imageio==2.37.0",
+    "easydict==1.13",
+    "ftfy==6.3.1",
+    "dashscope==1.24.2",
+    "imageio-ffmpeg==0.6.0",
+    "scikit-image==0.25.2",
+    "loguru==0.7.3",
+    "gradio==5.43.1",
+    "numpy==1.26.4",
+    "xfuser==0.4.4",
+    "pyloudnorm==0.1.1",
+    "optimum-quanto==0.2.6",
+    "scenedetect==0.6.6",
+    "moviepy==1.0.3",
+    "decord==0.6.0",
+    # O xfuser depende de distvae, que só publicou pré-releases até a data de corte.
+    "distvae==0.0.0b5",
+    # O README instala librosa e misaki[en] à parte; generate_infinitetalk.py importa
+    # librosa e o pacote kokoro do repositório, que importa misaki.
+    "librosa==0.11.0",
+    "misaki[en]==0.9.4",
+    "torch==2.4.1",
+    "torchvision==0.19.1",
+    "torchaudio==2.4.1",
+    "xformers==0.0.28.post1",
+    "flash-attn==2.7.4.post1",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+# Data de corte próxima da última mudança de código e dependências do InfiniteTalk
+# (agosto de 2025), para as dependências transitivas não avançarem além dela.
+exclude-newer = "2025-08-25T00:00:00Z"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+torchaudio = { index = "pytorch-cu121" }
+# Wheels fixadas pelas URLs do manifesto (xformers-wheel e flash-attn-wheel).
+xformers = { url = "https://download.pytorch.org/whl/cu121/xformers-0.0.28.post1-cp310-cp310-manylinux_2_28_x86_64.whl" }
+flash-attn = { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1%2Bcu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+target-version = "py310"
