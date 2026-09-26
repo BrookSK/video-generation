@@ -1,4 +1,4 @@
-"""Rotas do painel com cookie de sessão: login, sessão atual, pessoas, chaves e avatares."""
+"""Rotas do painel com cookie de sessão: login, sessão atual, pessoas, chaves e assets."""
 
 import tempfile
 import uuid
@@ -30,7 +30,7 @@ from avatar_api.auth import (
 )
 from avatar_api.errors import ApiError
 from avatar_api.jobs import _without_nul
-from avatar_api.models import VOICES, ApiKey, Avatar, User, UserSession
+from avatar_api.models import VOICES, ApiKey, Avatar, Scene, User, UserSession
 from avatar_api.uploads import validate_image
 
 router = APIRouter(prefix="/panel")
@@ -108,6 +108,16 @@ class AvatarOut(BaseModel):
     status: assets.AvatarStatus
     prepare_error: str | None
     authorized_at: datetime | None
+    created_at: datetime
+    archived_at: datetime | None
+
+
+class SceneOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    background_color: str | None
+    composition: dict[str, dict[str, float]]
+    status: assets.SceneStatus
     created_at: datetime
     archived_at: datetime | None
 
@@ -343,4 +353,76 @@ def avatar_file(
     request: Request,
 ) -> FileResponse:
     path, stored = assets.avatar_file(db, request.app.state.settings.data_dir, avatar_id, kind)
+    return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
+
+
+# --- cenários ---------------------------------------------------------------------------
+
+
+def _scene_out(scene: Scene) -> SceneOut:
+    return SceneOut(
+        id=scene.id,
+        name=scene.name,
+        background_color=scene.background_color,
+        composition=scene.composition,
+        status=assets.scene_status(scene),
+        created_at=scene.created_at,
+        archived_at=scene.archived_at,
+    )
+
+
+@router.get("/scenes")
+def list_scenes(
+    _: CurrentPanelSession, db: DbSession, include_archived: bool = False
+) -> list[SceneOut]:
+    return [_scene_out(scene) for scene in assets.list_scenes(db, include_archived)]
+
+
+@router.post("/scenes", status_code=201)
+def create_scene(
+    name: Annotated[_AssetName, Form()],
+    composition: Annotated[str, Form()],
+    identity: CurrentPanelSession,
+    db: DbSession,
+    request: Request,
+    background_color: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
+) -> SceneOut:
+    if (background_color is None) == (file is None):
+        raise ApiError(
+            422, "VALIDATION_ERROR", "Escolha uma imagem ou uma cor de fundo.", "background"
+        )
+    if background_color is not None and not assets.HEX_COLOR.fullmatch(background_color):
+        raise ApiError(
+            422, "VALIDATION_ERROR", "Use uma cor no formato #RRGGBB.", "background_color"
+        )
+    framing = assets.parse_composition(composition)
+    data_dir = request.app.state.settings.data_dir
+    if file is None:
+        scene = assets.create_scene(
+            db, data_dir, identity.user_id, name, framing, background_color=background_color
+        )
+        return _scene_out(scene)
+    # O temporário da validação fica fora de DATA_DIR: recusa não deixa nada no volume.
+    with tempfile.TemporaryDirectory(prefix="scene-upload-") as tmp_dir:
+        image = validate_image(file.file, "file", Path(tmp_dir))
+        scene = assets.create_scene(db, data_dir, identity.user_id, name, framing, image=image)
+    return _scene_out(scene)
+
+
+# Sem PUT nem PATCH: cenário salvo não muda; para trocar, arquiva e cadastra outro.
+@router.post("/scenes/{scene_id}/archive")
+def archive_scene(scene_id: uuid.UUID, _: CurrentPanelSession, db: DbSession) -> SceneOut:
+    return _scene_out(assets.archive_scene(db, scene_id))
+
+
+@router.get("/scenes/{scene_id}/files/{kind}")
+def scene_file(
+    scene_id: uuid.UUID,
+    kind: assets.SceneFileKind,
+    _: CurrentPanelSession,
+    db: DbSession,
+    request: Request,
+) -> FileResponse:
+    path, stored = assets.scene_file(db, request.app.state.settings.data_dir, scene_id, kind)
     return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
