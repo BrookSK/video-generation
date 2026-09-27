@@ -1,0 +1,34 @@
+# Caddy do painel: serve o build do apps/web e encaminha só /api e /panel à API.
+# /internal fica restrito à rede interna do Compose. Sem SITE_ADDRESS, escuta :80 em HTTP.
+{
+	admin off
+}
+
+{$SITE_ADDRESS::80} {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+	}
+
+	handle /internal/* {
+		respond 404
+	}
+
+	@api path /api/* /panel/*
+	handle @api {
+		# request_body só corta o corpo quando ele é lido; a API pode responder antes (401),
+		# então o Content-Length declarado acima do limite é recusado aqui, sem chegar à API.
+		@grande expression `{http.request.header.Content-Length} != "" && int({http.request.header.Content-Length}) > 25000000`
+		respond @grande 413
+		request_body {
+			max_size 25MB
+		}
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

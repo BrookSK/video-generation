@@ -1,4 +1,4 @@
-# Stack base: postgres, api e worker, sem nenhuma porta publicada no host.
+# Stack base: postgres, api, worker e caddy, sem nenhuma porta publicada no host.
 # Variáveis em infra/compose/.env (modelo em .env.example).
 name: avatar
 
@@ -70,6 +70,18 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+  caddy:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      # O Caddyfile só usa o padrão :80 com a variável ausente; vazia, o bloco fica sem endereço.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:
