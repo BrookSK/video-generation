@@ -1,7 +1,45 @@
 # Imagem do worker (piloto e, a partir da P03, serviço worker). Build pela raiz do repositório:
 #   docker build -f infra/docker/worker.Dockerfile .
-# Só roda em host linux x86_64 com GPU NVIDIA; os runtimes travam torch com CUDA.
+# O estágio padrão (o último) só roda em host linux x86_64 com GPU NVIDIA; os runtimes
+# travam torch com CUDA.
 FROM ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 AS uv
+
+# Supervisor sem GPU, só com recorte do avatar em CPU (desenvolvimento, qualquer arquitetura):
+#   docker build --target supervisor-cpu -f infra/docker/worker.Dockerfile .
+# O modelo birefnet-portrait vem do volume /models (manifest pull --component birefnet-portrait).
+FROM python:3.12.13-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36 AS supervisor-cpu
+
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    U2NET_HOME=/models/birefnet-portrait \
+    PATH=/app/apps/worker/.venv/bin:$PATH \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app/apps/worker
+
+# O numba valida o cache pelo mtime do fonte e a exportação da camada corta a fração de
+# segundo; truncar aqui mantém válido o cache aquecido no fim do estágio.
+COPY apps/worker/pyproject.toml apps/worker/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project \
+    && python -c "import os, pathlib; [os.utime(p, (int(s.st_atime), int(s.st_mtime))) for p in pathlib.Path('.venv').rglob('*.py') for s in [p.stat()]]"
+
+COPY apps/worker/src ./src
+RUN uv sync --frozen --no-dev --no-editable
+
+# Home própria para caches de bibliotecas (numba do rembg); /models vem de volume.
+RUN useradd --no-log-init --uid 10001 --user-group --create-home --shell /usr/sbin/nologin app
+
+USER app
+
+# O rembg importa o pymatting, que compila com numba (~12 s a frio); o cache fica em ~/.cache
+# da imagem e o supervisor sobe em menos de 1 s no mesmo tipo de CPU.
+RUN python -c "import rembg"
+
+CMD ["python", "-m", "avatar_worker.supervisor"]
 
 # Fallback do flash_attn, usado só se a T13 provar que a wheel fixada no runtime de avatar
 # não instala: um estágio "build-flash-attn" a partir de

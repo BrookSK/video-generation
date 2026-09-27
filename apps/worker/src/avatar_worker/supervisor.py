@@ -6,7 +6,8 @@ Lê API_URL (padrão http://api:8000), WORKER_TOKEN (obrigatório), WORKER_ID (p
 hostname), WORKER_KINDS (padrão asset_prepare) e POLL_SECONDS (padrão 3). Cada tarefa tem
 heartbeat numa thread própria; 409 ou lease vencido sem renovação marcam a tentativa como
 perdida, e dali em diante nada é enviado nem publicado. Erro de rede repete com backoff de
-1 a 30 s. SIGTERM encerra depois do item atual. Os logs trazem só task_id, etapa e código.
+1 a 30 s. SIGTERM encerra depois do item atual. Os logs trazem só task_id, etapa e código,
+além da linha de início com o worker_id e os tipos reivindicados.
 """
 
 import hashlib
@@ -324,6 +325,7 @@ def main(env: Mapping[str, str] | None = None) -> int:
     except ConfigError as exc:
         print(exc, file=sys.stderr)
         return 2
+    logger.info("inicio worker_id=%s tipos=%s", config.worker_id, ",".join(config.kinds))
     headers = {"Authorization": f"Bearer {config.token}"}
     with httpx.Client(
         base_url=config.api_url, headers=headers, timeout=REQUEST_TIMEOUT_S

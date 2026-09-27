@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import urllib.request
+from collections.abc import Collection
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -216,15 +217,24 @@ def _download(url: str, part: Path, size: int) -> str:
     return digest.hexdigest()
 
 
-def pull(manifest: dict[str, Any], dest: Path) -> tuple[int, int]:
+def pull(
+    manifest: dict[str, Any], dest: Path, components: Collection[str] | None = None
+) -> tuple[int, int]:
     """Baixa os arquivos dos componentes model em dest/<id>/<path>; devolve (baixados, pulados).
 
+    Com components, baixa só os ids nomeados e recusa id ausente do manifesto antes de baixar.
     Cada arquivo passa por <arquivo>.part e só é renomeado com SHA-256 e size do manifesto.
     Arquivo já presente com hash correto não é baixado de novo.
     """
+    if components is not None:
+        unknown = sorted(set(components) - {c["id"] for c in manifest["components"]})
+        if unknown:
+            raise PullError(f"componente fora do manifesto: {', '.join(unknown)}")
     downloaded = skipped = 0
     for component in manifest["components"]:
         if component["kind"] != "model":
+            continue
+        if components is not None and component["id"] not in components:
             continue
         for entry in component["files"]:
             label = f"{component['id']}/{entry['path']}"
@@ -263,7 +273,7 @@ def _pull(args: argparse.Namespace) -> int:
     if manifest is None:
         return 1
     try:
-        downloaded, skipped = pull(manifest, args.dest)
+        downloaded, skipped = pull(manifest, args.dest, args.components)
     except PullError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
@@ -280,6 +290,13 @@ def main(argv: list[str] | None = None) -> int:
     pull_parser = commands.add_parser("pull", help="baixa os pesos conferindo cada SHA-256")
     pull_parser.add_argument("--policy", required=True, help="arquivo MODEL_MANIFEST.json")
     pull_parser.add_argument("--dest", required=True, type=Path, help="diretório dos pesos")
+    pull_parser.add_argument(
+        "--component",
+        action="append",
+        dest="components",
+        metavar="ID",
+        help="baixa só este componente; repetível",
+    )
     pull_parser.set_defaults(handler=_pull)
     args = parser.parse_args(argv)
     return args.handler(args)

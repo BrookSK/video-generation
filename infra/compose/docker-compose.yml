@@ -1,4 +1,4 @@
-# Stack base: postgres e api, sem nenhuma porta publicada no host.
+# Stack base: postgres, api e worker, sem nenhuma porta publicada no host.
 # Variáveis em infra/compose/.env (modelo em .env.example).
 name: avatar
 
@@ -48,6 +48,28 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+      WORKER_KINDS: ${WORKER_KINDS:-asset_prepare}
+    volumes:
+      - ${MODELS_DIR:-/srv/avatar/models}:/models:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   pgdata:
