@@ -5,6 +5,8 @@ import { logout, onUnauthorized, restoreSession, type SessionUser } from "./api"
 import { Access } from "./screens/Access";
 import { Avatars } from "./screens/Avatars";
 import { Login } from "./screens/Login";
+import { SceneEditor } from "./screens/SceneEditor";
+import { Scenes } from "./screens/Scenes";
 import { BrandMark, BrandName, Icon, initials, type IconName } from "./ui";
 
 const HOME = "/avatares";
@@ -96,20 +98,6 @@ function Shell({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }
   );
 }
 
-// Telas da biblioteca chegam nas próximas tarefas da fase; até lá a rota mostra o título.
-function PageHead({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <h1>{title}</h1>
-          <p>{description}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function RequireSession({ user, onSignOut }: { user: SessionUser | null; onSignOut: () => void }) {
   const location = useLocation();
   if (!user) {
@@ -163,8 +151,8 @@ export function App() {
       <Route path="/entrar" element={<SignIn user={user} onSignedIn={setUser} />} />
       <Route element={<RequireSession user={user} onSignOut={signOut} />}>
         <Route path="/avatares" element={<Avatars />} />
-        <Route path="/cenarios" element={<PageHead title="Cenários" description="Fundos e enquadramentos para 9:16 e 16:9." />} />
-        <Route path="/cenarios/novo" element={<PageHead title="Criar cenário" description="Escolha o fundo e enquadre o avatar nos dois formatos." />} />
+        <Route path="/cenarios" element={<Scenes />} />
+        <Route path="/cenarios/novo" element={<SceneEditor />} />
         <Route path="/acesso" element={<Access />} />
         <Route path="*" element={<Navigate to={HOME} replace />} />
       </Route>
