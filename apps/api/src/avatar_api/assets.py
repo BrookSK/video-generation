@@ -12,14 +12,14 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from PIL import Image, ImageOps
+from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from avatar_api.errors import ApiError
 from avatar_api.models import ASPECT_RATIOS, AssetPrepareTask, Avatar, Scene, StoredFile
 from avatar_api.storage import resolve_path, save_stream
-from avatar_api.uploads import ValidatedImage
+from avatar_api.uploads import ValidatedImage, render_previews
 
 AvatarStatus = Literal["preparando", "ativo", "falha", "arquivado"]
 AvatarFileKind = Literal["source", "prepared", "preview-9x16", "preview-16x9"]
@@ -193,17 +193,16 @@ def scene_status(scene: Scene) -> SceneStatus:
 
 
 def _scene_previews(background_color: str | None, image: ValidatedImage | None) -> dict[str, bytes]:
-    """PNG de cada formato: o fundo ajustado por cover e centralizado, ou a cor sólida."""
-    source = None
+    """PNG de cada formato: o fundo ajustado por cover e centralizado, ou a cor sólida.
+
+    A imagem enviada só é decodificada no subprocesso limitado de uploads; a cor sólida,
+    que não vem de arquivo, é desenhada aqui.
+    """
     if image is not None:
-        with Image.open(image.path) as opened:
-            source = ImageOps.exif_transpose(opened).convert("RGB")
+        return render_previews(image.path, _SCENE_PREVIEWS, "file")
     previews = {}
     for kind, size in _SCENE_PREVIEWS.items():
-        if source is not None:
-            preview = ImageOps.fit(source, size, Image.Resampling.LANCZOS)
-        else:
-            preview = Image.new("RGB", size, background_color)
+        preview = Image.new("RGB", size, background_color)
         buffer = io.BytesIO()
         preview.save(buffer, format="PNG")
         previews[kind] = buffer.getvalue()

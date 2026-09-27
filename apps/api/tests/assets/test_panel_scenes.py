@@ -1,5 +1,6 @@
 import io
 import json
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from avatar_api import assets
+from avatar_api import assets, uploads
 from avatar_api.config import Settings
 from avatar_api.models import Scene, StoredFile, User
 from avatar_api.storage import resolve_path
@@ -164,6 +165,48 @@ def test_previas_de_imagem_por_cover_centralizado(panel):
     assert near(horizontal.getpixel((480, 270)), (255, 0, 0))
     assert near(horizontal.getpixel((5, 270)), (0, 0, 255))
     assert near(horizontal.getpixel((954, 270)), (0, 0, 255))
+
+
+def test_previas_de_imagem_nao_decodificam_no_processo_da_api(panel, monkeypatch):
+    def decode_in_process(*args, **kwargs):
+        raise AssertionError("imagem enviada decodificada no processo da API")
+
+    monkeypatch.setattr(Image, "open", decode_in_process)
+    response = post_scene(panel, color=None, image=striped_background())
+    monkeypatch.undo()
+
+    assert response.status_code == 201, response.text
+    scene_id = response.json()["id"]
+    for kind, size in (("preview-9x16", (540, 960)), ("preview-16x9", (960, 540))):
+        preview = open_png(panel.get(f"/panel/scenes/{scene_id}/files/{kind}").content)
+        assert preview.size == size
+
+
+@pytest.mark.parametrize("falha", ["tempo", "erro"])
+def test_falha_nas_previas_da_imagem_recusa_sem_deixar_nada(
+    panel, session, settings, monkeypatch, falha
+):
+    real_run = subprocess.run
+
+    def run(args, **kwargs):
+        if "--previews" not in args:
+            return real_run(args, **kwargs)
+        if falha == "tempo":
+            raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+        return subprocess.CompletedProcess(args, 1, b"", b"MemoryError")
+
+    monkeypatch.setattr(uploads.subprocess, "run", run)
+    before = snapshot(session, settings.data_dir)
+
+    response = post_scene(panel, color=None, image=striped_background())
+
+    assert response.status_code == 422
+    assert error_of(response) == {
+        "code": "IMAGE_UNREADABLE",
+        "message": "Não foi possível ler a imagem. Envie outro arquivo.",
+        "field": "file",
+    }
+    assert snapshot(session, settings.data_dir) == before
 
 
 def test_enquadramento_lido_de_volta_e_identico(panel):
