@@ -34,6 +34,8 @@ export class ApiError extends Error {
 export const NETWORK_ERROR = "NETWORK_ERROR";
 
 const LOGIN_PATH = "/panel/auth/login";
+const SESSION_PATH = "/panel/auth/me";
+const CSRF_INVALID = "CSRF_INVALID";
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
 
 let csrfToken: string | null = null;
@@ -66,28 +68,49 @@ export async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json" };
   let payload: BodyInit | undefined;
+  let contentType: string | undefined;
   if (body instanceof FormData) {
     payload = body;
   } else if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
+    contentType = "application/json";
     payload = JSON.stringify(body);
   }
-  if (!SAFE_METHODS.has(method) && csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
+  const unsafe = !SAFE_METHODS.has(method);
 
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method,
-      headers,
-      credentials: "same-origin",
-      ...(payload === undefined ? {} : { body: payload }),
-    });
-  } catch {
-    throw new ApiError(0, NETWORK_ERROR, "Não foi possível falar com o servidor. Tente de novo em instantes.");
+  // Monta os cabeçalhos a cada envio para o reenvio levar o CSRF atualizado.
+  const send = async (): Promise<Response> => {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (contentType) {
+      headers["Content-Type"] = contentType;
+    }
+    if (unsafe && csrfToken) {
+      headers["X-CSRF-Token"] = csrfToken;
+    }
+    try {
+      return await fetch(path, {
+        method,
+        headers,
+        credentials: "same-origin",
+        ...(payload === undefined ? {} : { body: payload }),
+      });
+    } catch {
+      throw new ApiError(0, NETWORK_ERROR, "Não foi possível falar com o servidor. Tente de novo em instantes.");
+    }
+  };
+
+  let response = await send();
+
+  // Outra aba (ou um novo GET /panel/auth/me) girou o CSRF: busca o token vigente uma vez
+  // e reenvia a mesma requisição uma única vez. Se falhar de novo, o erro segue abaixo.
+  if (unsafe && response.status === 403) {
+    const error = await toApiError(response);
+    if (error.code !== CSRF_INVALID) {
+      throw error;
+    }
+    const session = await request<Session>("GET", SESSION_PATH);
+    csrfToken = session.csrf_token;
+    response = await send();
   }
 
   if (!response.ok) {
@@ -114,7 +137,7 @@ export async function login(username: string, password: string): Promise<Session
 /** Recupera a sessão do cookie ao abrir ou recarregar o painel; sem sessão devolve null. */
 export async function restoreSession(): Promise<SessionUser | null> {
   try {
-    const session = await request<Session>("GET", "/panel/auth/me");
+    const session = await request<Session>("GET", SESSION_PATH);
     csrfToken = session.csrf_token;
     return session.user;
   } catch (error) {
