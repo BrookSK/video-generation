@@ -1,0 +1,11 @@
+# Servidor temporário sem GPU. Use junto do docker-compose.yml.
+# O painel fica acessível por túnel SSH; a API e o banco ficam na rede interna.
+services:
+  worker:
+    build:
+      target: supervisor-cpu
+    deploy: !reset {}
+
+  caddy:
+    ports:
+      - "127.0.0.1:${PANEL_PORT:-8088}:80"
