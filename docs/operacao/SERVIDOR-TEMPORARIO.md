@@ -1,6 +1,7 @@
 # Servidor temporário em CPU
 
-O servidor temporário permite usar o painel, a API e a preparação dos avatares em CPU.
+Esta VPS é um ambiente temporário de testes. Ela permite validar o painel, a API
+e a preparação dos avatares em CPU. Os containers devem ficar parados entre os testes.
 A geração de vídeos e o piloto da P02 exigem uma GPU NVIDIA e continuam pendentes.
 
 ## Instalação
@@ -49,7 +50,7 @@ docker compose -f infra/compose/docker-compose.yml \
 
 ## Acesso
 
-Sem um domínio definido, o painel escuta apenas em `127.0.0.1:8088` no servidor.
+O painel de testes escuta apenas em `127.0.0.1:8088` no servidor.
 Abra o túnel na sua máquina e mantenha o comando em execução:
 
 ```bash
@@ -76,5 +77,12 @@ Para atualizar, preserve `infra/compose/.env`, `/srv/avatar/models` e os volumes
 Repita o build e o `up -d --wait` após atualizar o código.
 Não use `down -v` neste servidor: ele apagaria os dados persistentes.
 
-Quando houver um domínio, configure HTTPS antes de publicar o painel na internet.
+Ao terminar os testes, pare e remova os containers, preservando os dados:
+
+```bash
+docker compose -f infra/compose/docker-compose.yml \
+  -f infra/compose/docker-compose.cpu.yml down
+```
+
+Para testar novamente, rode `up -d --wait` com os mesmos arquivos e abra o túnel.
 Para gerar vídeos, use o procedimento de GPU em `INSTALACAO.md`.
