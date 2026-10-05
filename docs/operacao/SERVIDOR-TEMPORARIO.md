@@ -23,10 +23,9 @@ docker compose -f infra/compose/docker-compose.yml \
   -f infra/compose/docker-compose.cpu.yml build
 
 mkdir -p /srv/avatar/models
-docker compose -f infra/compose/docker-compose.yml \
-  -f infra/compose/docker-compose.cpu.yml run --rm --no-deps \
-  --user 0:0 -v "$PWD/docs/models:/policy:ro" \
-  -v /srv/avatar/models:/models worker \
+docker run --rm --user 0:0 \
+  -v "$PWD/docs/models:/policy:ro" \
+  -v /srv/avatar/models:/models:rw avatar-worker \
   python -m avatar_worker.manifest pull \
   --policy /policy/MODEL_MANIFEST.json --dest /models \
   --component birefnet-portrait
@@ -58,8 +57,10 @@ ssh -N -L 8088:127.0.0.1:8088 root@157.173.113.161
 ```
 
 Abra `http://localhost:8088`. A comunicação com o servidor passa pelo SSH.
-O usuário inicial e a senha ficam em `/srv/avatar/access/painel-admin.json`, com
-leitura permitida somente ao root. Leia esse arquivo por SSH para obter o acesso.
+Na instalação realizada em `157.173.113.161`, o usuário inicial e a senha foram
+gerados e guardados em `/srv/avatar/access/painel-admin.json`, com leitura permitida
+somente ao root. Leia esse arquivo por SSH para obter o acesso. Em uma nova
+instalação, guarde a senha escolhida para a CLI no cofre de senhas da equipe.
 
 ## Operação
 
