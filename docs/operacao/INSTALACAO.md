@@ -85,6 +85,51 @@ Ele para no primeiro item que falhar e explica o motivo.
 No fim, mostra um resumo com o nome da GPU, a VRAM total e o driver vistos de dentro do contêiner.
 Guarde essa saída como evidência da instalação.
 
+### Ambiente GPU do provedor em contêiner (2026-10-08)
+
+O acesso entregue pelo cliente é Ubuntu 24.04 em um contêiner Sysbox, com
+NVIDIA L40S (46.068 MiB), driver 580.159.03, limite de 8 GB de RAM e quota
+equivalente a 4 CPUs. Os 128 processadores visíveis não são a quota disponível.
+O driver já vem do provedor: não reinstale o driver nem reinicie o host físico.
+
+Docker 29.8.2, Compose 5.6.0 e NVIDIA Container Toolkit 1.20.1 foram instalados.
+O runtime legado falhou ao configurar os dispositivos neste ambiente aninhado.
+O modo CDI oficial resolveu a exposição da GPU, mantendo o `--gpus all` usado
+pelo projeto:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo nvidia-ctk config --in-place --set nvidia-container-runtime.mode=cdi
+sudo nvidia-ctk runtime configure --runtime=docker --set-as-default
+sudo systemctl restart docker
+sudo bash infra/scripts/gpu-host-check.sh
+```
+
+O último comando passou no servidor. Regenere a especificação CDI quando o
+provedor trocar a GPU ou o driver. Referência:
+https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html .
+Não há medição de RAM do pipeline nem aprovação de qualidade nesta checagem.
+
+O disco raiz tem cerca de 89 GiB livres e não comporta os 123 GB de pesos.
+O mount de `/var/lib/docker` expõe cerca de 659 GiB livres. Neste ambiente,
+os modelos ficam em um volume Docker, usando o caminho real do volume nos
+comandos e nas montagens já existentes:
+
+```bash
+sudo docker volume create avatar_models
+export MODELS_DIR="$(sudo docker volume inspect --format '{{.Mountpoint}}' avatar_models)"
+export PILOT_DIR=/srv/avatar/pilot
+sudo env MODELS_DIR="$MODELS_DIR" PILOT_DIR="$PILOT_DIR" \
+  docker compose -f infra/compose/docker-compose.pilot.yml build
+sudo env MODELS_DIR="$MODELS_DIR" bash infra/scripts/models-pull.sh
+```
+
+Não remova o volume nem execute `docker volume prune`. O espaço exibido pertence
+ao filesystem do provedor; quota, persistência após destruir a instância e backup
+externo precisam ser confirmados com ele. O limite de 8 GB de RAM permanece:
+a geração só será considerada viável após o piloto real, sem reduzir qualidade
+ou congelar a receita para contornar falta de memória.
+
 ## Pesos dos modelos
 
 ### Imagem do worker
