@@ -5,7 +5,7 @@
   "manifest": "MODEL_MANIFEST.json",
   "worker_image": {
     "ref": "avatar-worker:pilot",
-    "digest": null
+    "digest": "sha256:60a2b80f8e6998fa6cf736076cc310d3cc0e0617a414f37e196efe304b714242"
   },
   "cutout": {
     "model": "birefnet-portrait",

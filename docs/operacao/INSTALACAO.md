@@ -110,6 +110,24 @@ provedor trocar a GPU ou o driver. Referência:
 https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html .
 Não há medição de RAM do pipeline nem aprovação de qualidade nesta checagem.
 
+A primeira construção falhou em `uv python install` com `No file descriptors
+available (os error 24)`: os contêineres tinham limite soft de 1024 arquivos.
+O build completo passou depois de configurar `nofile` soft 65536 e hard 524288,
+sem desativar a compilação de bytecode nem alterar versões ou lockfiles.
+O servidor usa `/etc/systemd/system/docker.service.d/avatar-limits.conf`
+com `[Service]` e `LimitNOFILE=65536:524288`. Em `/etc/docker/daemon.json`,
+o objeto `default-ulimits` contém
+`"nofile": {"Name": "nofile", "Hard": 524288, "Soft": 65536}`.
+Preserve as demais chaves do daemon, incluindo as redes configuradas pelo
+provedor e o runtime NVIDIA. Valide o JSON com `sudo dockerd --validate`,
+rode `sudo systemctl daemon-reload` e reinicie somente o serviço Docker.
+
+Os runtimes executaram multiplicação de matrizes na L40S, com resultado
+conferido, usando `--network none`: TTS com PyTorch 2.6.0+cu126 e avatar com
+PyTorch 2.4.1+cu121. No avatar, `flash_attn 2.7.4.post1` e
+`xformers 0.0.28.post1` importaram sem recompilação. Isso comprova CUDA e as
+extensões da imagem, não a qualidade, a duração ou a memória do piloto.
+
 O disco raiz tem cerca de 89 GiB livres e não comporta os 123 GB de pesos.
 O mount de `/var/lib/docker` expõe cerca de 659 GiB livres. Neste ambiente,
 os modelos ficam em um volume Docker, usando o caminho real do volume nos
