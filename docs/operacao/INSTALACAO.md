@@ -85,6 +85,100 @@ Ele para no primeiro item que falhar e explica o motivo.
 No fim, mostra um resumo com o nome da GPU, a VRAM total e o driver vistos de dentro do contêiner.
 Guarde essa saída como evidência da instalação.
 
+### Ambiente GPU do provedor em contêiner (2026-10-08)
+
+O acesso entregue pelo cliente é Ubuntu 24.04 em um contêiner Sysbox, com
+NVIDIA L40S (46.068 MiB), driver 580.159.03, limite de 8 GB de RAM e quota
+equivalente a 4 CPUs. Os 128 processadores visíveis não são a quota disponível.
+O driver já vem do provedor: não reinstale o driver nem reinicie o host físico.
+
+Docker 29.8.2, Compose 5.6.0 e NVIDIA Container Toolkit 1.20.1 foram instalados.
+O runtime legado falhou ao configurar os dispositivos neste ambiente aninhado.
+O modo CDI oficial resolveu a exposição da GPU, mantendo o `--gpus all` usado
+pelo projeto:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo nvidia-ctk config --in-place --set nvidia-container-runtime.mode=cdi
+sudo nvidia-ctk runtime configure --runtime=docker --set-as-default
+sudo systemctl restart docker
+sudo bash infra/scripts/gpu-host-check.sh
+```
+
+O último comando passou no servidor. Regenere a especificação CDI quando o
+provedor trocar a GPU ou o driver. Referência:
+https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html .
+Não há medição de RAM do pipeline nem aprovação de qualidade nesta checagem.
+
+A primeira construção falhou em `uv python install` com `No file descriptors
+available (os error 24)`: os contêineres tinham limite soft de 1024 arquivos.
+O build completo passou depois de configurar `nofile` soft 65536 e hard 524288,
+sem desativar a compilação de bytecode nem alterar versões ou lockfiles.
+O servidor usa `/etc/systemd/system/docker.service.d/avatar-limits.conf`
+com `[Service]` e `LimitNOFILE=65536:524288`. Em `/etc/docker/daemon.json`,
+o objeto `default-ulimits` contém
+`"nofile": {"Name": "nofile", "Hard": 524288, "Soft": 65536}`.
+Preserve as demais chaves do daemon, incluindo as redes configuradas pelo
+provedor e o runtime NVIDIA. Valide o JSON com `sudo dockerd --validate`,
+rode `sudo systemctl daemon-reload` e reinicie somente o serviço Docker.
+
+Os runtimes executaram multiplicação de matrizes na L40S, com resultado
+conferido, usando `--network none`: TTS com PyTorch 2.6.0+cu126 e avatar com
+PyTorch 2.4.1+cu121. No avatar, `flash_attn 2.7.4.post1` e
+`xformers 0.0.28.post1` importaram sem recompilação. Isso comprova CUDA e as
+extensões da imagem, não a qualidade, a duração ou a memória do piloto.
+
+O disco raiz tem cerca de 89 GiB livres e não comporta os 123 GB de pesos.
+O mount de `/var/lib/docker` expõe cerca de 659 GiB livres. Neste ambiente,
+os modelos ficam em um volume Docker, usando o caminho real do volume nos
+comandos e nas montagens já existentes:
+
+```bash
+sudo docker volume create avatar_models
+export MODELS_DIR="$(sudo docker volume inspect --format '{{.Mountpoint}}' avatar_models)"
+export PILOT_DIR=/srv/avatar/pilot
+sudo env MODELS_DIR="$MODELS_DIR" PILOT_DIR="$PILOT_DIR" \
+  docker compose -f infra/compose/docker-compose.pilot.yml build
+sudo env MODELS_DIR="$MODELS_DIR" bash infra/scripts/models-pull.sh
+```
+
+Não remova o volume nem execute `docker volume prune`. O espaço exibido pertence
+ao filesystem do provedor; quota, persistência após destruir a instância e backup
+externo precisam ser confirmados com ele. O limite de 8 GB de RAM permanece:
+a geração só será considerada viável após o piloto real, sem reduzir qualidade
+ou congelar a receita para contornar falta de memória.
+
+### Estado da retomada e dependências de entrega (2026-10-08)
+
+A preparação do host (P02/T12) foi comprovada e concluída. A imagem do worker
+foi construída e seus dois runtimes executaram cálculos CUDA. Seu digest está
+registrado em `RECIPE-v1.json`, que permanece em `draft`.
+
+O download dos modelos foi interrompido com
+`Error waiting for container: Canceled: grpc: the client connection is closing:
+context canceled`. Depois, o acesso SSH fornecido pelo cliente recusou conexão;
+a mesma recusa foi observada em uma checagem TCP independente. Não foi possível
+inspecionar o servidor depois da interrupção. A causa, os arquivos ainda
+persistidos e a disponibilidade da imagem após restabelecer a instância são
+desconhecidos. Não há evidência para atribuir a interrupção à RAM.
+
+O download completo, a segunda execução sem downloads e a geração de vídeos
+não foram comprovados: P02/T13 continua pendente. Quando o cliente restabelecer
+o acesso, confira o volume e a imagem, depois reexecute `models-pull.sh` com o
+`MODELS_DIR` do volume. O comando revalida os hashes dos arquivos existentes e
+baixa novamente os ausentes ou inválidos; não dispense essa conferência.
+
+Para o piloto T14/T15 falta uma imagem de pessoa, com ombros visíveis, e o
+registro de autorização de uso. A foto pública usada na P03 era uma fixture,
+não um avatar autorizado do cliente. O avaliador precisa examinar as amostras
+antes de congelar a receita. Não invente sua aprovação.
+
+P04 depende dessa receita congelada; P05 depende da geração real da P04;
+P06 depende da P05. A entrega final também exige o veredito do cliente na matriz
+de 2 avatares, 4 cenários e 2 formatos, uma pessoa para publicar manualmente no
+Instagram e uma pessoa da equipe para provar autonomia. HTTPS e a revogação dos
+acessos temporários pertencem à instalação final, não à checagem do host.
+
 ## Pesos dos modelos
 
 ### Imagem do worker
