@@ -148,6 +148,37 @@ externo precisam ser confirmados com ele. O limite de 8 GB de RAM permanece:
 a geração só será considerada viável após o piloto real, sem reduzir qualidade
 ou congelar a receita para contornar falta de memória.
 
+### Estado da retomada e dependências de entrega (2026-10-08)
+
+A preparação do host (P02/T12) foi comprovada e concluída. A imagem do worker
+foi construída e seus dois runtimes executaram cálculos CUDA. Seu digest está
+registrado em `RECIPE-v1.json`, que permanece em `draft`.
+
+O download dos modelos foi interrompido com
+`Error waiting for container: Canceled: grpc: the client connection is closing:
+context canceled`. Depois, o acesso SSH fornecido pelo cliente recusou conexão;
+a mesma recusa foi observada em uma checagem TCP independente. Não foi possível
+inspecionar o servidor depois da interrupção. A causa, os arquivos ainda
+persistidos e a disponibilidade da imagem após restabelecer a instância são
+desconhecidos. Não há evidência para atribuir a interrupção à RAM.
+
+O download completo, a segunda execução sem downloads e a geração de vídeos
+não foram comprovados: P02/T13 continua pendente. Quando o cliente restabelecer
+o acesso, confira o volume e a imagem, depois reexecute `models-pull.sh` com o
+`MODELS_DIR` do volume. O comando revalida os hashes dos arquivos existentes e
+baixa novamente os ausentes ou inválidos; não dispense essa conferência.
+
+Para o piloto T14/T15 falta uma imagem de pessoa, com ombros visíveis, e o
+registro de autorização de uso. A foto pública usada na P03 era uma fixture,
+não um avatar autorizado do cliente. O avaliador precisa examinar as amostras
+antes de congelar a receita. Não invente sua aprovação.
+
+P04 depende dessa receita congelada; P05 depende da geração real da P04;
+P06 depende da P05. A entrega final também exige o veredito do cliente na matriz
+de 2 avatares, 4 cenários e 2 formatos, uma pessoa para publicar manualmente no
+Instagram e uma pessoa da equipe para provar autonomia. HTTPS e a revogação dos
+acessos temporários pertencem à instalação final, não à checagem do host.
+
 ## Pesos dos modelos
 
 ### Imagem do worker
