@@ -1,0 +1,5 @@
+# GPU: worker + worker-release. Nenhum banco nem volume de dados da API.
+services:
+  worker:
+    build: !reset null
+    image: ${WORKER_IMAGE:?Informe a imagem do worker com digest verificado}

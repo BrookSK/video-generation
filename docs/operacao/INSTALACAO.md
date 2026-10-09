@@ -388,7 +388,7 @@ Passe o digest da imagem em `WORKER_IMAGE_DIGEST` para que o relatório do pilot
 export MODELS_DIR=/srv/avatar/models
 export PILOT_DIR=/srv/avatar/pilot
 docker compose -f infra/compose/docker-compose.pilot.yml run --rm \
-  -e WORKER_IMAGE_DIGEST="$(docker image inspect --format '{{.Id}}' avatar-worker:pilot)" \
+  -e WORKER_IMAGE_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' avatar-worker:pilot)" \
   pilot \
   --recipe /app/docs/models/RECIPE-v1.json \
   --manifest /app/docs/models/MODEL_MANIFEST.json \
@@ -405,3 +405,92 @@ docker compose -f infra/compose/docker-compose.pilot.yml run --rm \
 Sem `--formats`, o piloto gera 9:16 e 16:9. Com `--runs 2`, a primeira execução é fria e a segunda quente.
 Os vídeos e o `report.json` ficam em `/srv/avatar/pilot/out/fala-30s`.
 O relatório traz tempo e pico de VRAM por etapa e as interfaces de rede vistas no contêiner, que devem ser só `lo`.
+
+## Release imutável e instalação por papel
+
+Os comandos anteriores de build/piloto não são o aceite final. `install.sh` instala imagens já construídas e identificadas por digest; nunca faz build implícito, apaga volumes ou congela receita. Requer Python 3.11 ou superior e Docker Compose com `!reset`/`!override` (2.24.4 ou superior). Na GPU do provedor não reinstale o driver nem reinicie o host físico.
+
+### Preparar segredos sem imprimi-los
+
+Na VPS CPU, crie o ambiente uma única vez. Se já existe instalação, preserve os segredos e volumes; não gere senha nova para um PostgreSQL existente. O código abaixo recusa sobrescrever `.env`:
+
+```bash
+python3 - <<'PY'
+import os, secrets
+from pathlib import Path
+p = Path('infra/compose/.env')
+text = Path('infra/compose/.env.example').read_text()
+text = text.replace('POSTGRES_PASSWORD=\n', 'POSTGRES_PASSWORD=' + secrets.token_urlsafe(32) + '\n')
+text = text.replace('WORKER_TOKEN=\n', 'WORKER_TOKEN=' + secrets.token_urlsafe(32) + '\n')
+text = text.replace('APP_ENV=\n', 'APP_ENV=production\n')
+with os.fdopen(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
+    output.write(text)
+print('Ambiente privado criado; preencha domínio e imagens sem compartilhar o arquivo.')
+PY
+```
+
+Edite o arquivo privado para preencher `SITE_ADDRESS` com o domínio real apontando à VPS CPU, `API_IMAGE` e `PANEL_IMAGE`. Na VPS GPU, seu ambiente privado usa o **mesmo** `WORKER_TOKEN`, `WORKER_IMAGE`, `MODELS_DIR` e `API_URL=http://127.0.0.1:18000` para o túnel documentado. Transfira o token por cofre/canal privado autorizado, não por chat, shell history ou repositório. Mantenha ambos `.env` com `chmod 600`.
+
+### Construir e registrar imagens reais
+
+Código e imagens devem permanecer sob controle do cliente. Use seu repositório e um registro de imagens sob sua conta; endpoint, permissões e custos desse registro precisam estar resolvidos antes da publicação. Não crie conta/registro nem pague serviço em nome do cliente. `REGISTRY` e `RELEASE` abaixo são valores definidos pelo operador, não um registro público escolhido pelo projeto.
+
+No servidor CPU do cliente, com o commit escolhido:
+
+```bash
+docker build -f infra/docker/api.Dockerfile -t "$REGISTRY/avatar-api:$RELEASE" .
+docker build -f infra/docker/web.Dockerfile -t "$REGISTRY/avatar-panel:$RELEASE" .
+docker push "$REGISTRY/avatar-api:$RELEASE"
+docker push "$REGISTRY/avatar-panel:$RELEASE"
+docker image inspect "$REGISTRY/avatar-api:$RELEASE" --format '{{json .RepoDigests}}'
+docker image inspect "$REGISTRY/avatar-panel:$RELEASE" --format '{{json .RepoDigests}}'
+```
+
+Na GPU, construa e publique a imagem do worker **depois** de congelar a receita aprovada:
+
+```bash
+docker build -f infra/docker/worker.Dockerfile -t "$REGISTRY/avatar-worker:$RELEASE" .
+docker push "$REGISTRY/avatar-worker:$RELEASE"
+docker image inspect "$REGISTRY/avatar-worker:$RELEASE" --format '{{json .RepoDigests}}'
+```
+
+Use as referências completas `nome@sha256:...` retornadas realmente pelo registro, em `API_IMAGE`, `PANEL_IMAGE`, `WORKER_IMAGE`. `latest` é recusada mesmo acompanhada de digest. Image ID (`.Id`) não é digest de publicação; não o use no relatório do piloto nem na receita. Se o build local não oferece `RepoDigests`, publique/puxe no registro autorizado e confira a identidade antes do piloto. O nome/tag local `avatar-worker:pilot` precisa apontar à mesma imagem identificada no relatório.
+
+### Instalar CPU/API e GPU
+
+No papel API, somente PostgreSQL, API e Caddy iniciam. O release substitui o bind temporário do painel por portas públicas 80/443, guarda estado/certificados do Caddy em volumes e mantém a porta interna da API em loopback. O domínio precisa apontar à VPS e o firewall permitir apenas HTTPS/HTTP necessário e SSH autorizado; PostgreSQL e `/internal/v1` não são públicos.
+
+```bash
+bash infra/scripts/check-release.sh --role api
+bash infra/scripts/install.sh --role api
+```
+
+O instalador espera a saúde da API e consulta `/readyz`; migrações rodam no entrypoint. Crie o primeiro usuário uma vez, com senha interativa (não em argumento):
+
+```bash
+CPU=(docker compose --env-file infra/compose/.env -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.cpu.yml -f infra/compose/docker-compose.api.yml -f infra/compose/docker-compose.release.yml)
+"${CPU[@]}" exec api avatar-api users create --username equipe@dominio-do-cliente
+```
+
+Depois do piloto **real e aprovado**, carregue a receita frozen pelo stdin; o comando recusa receita não congelada:
+
+```bash
+"${CPU[@]}" exec -T api avatar-api recipes load < docs/models/RECIPE-v1.json
+```
+
+Na GPU, complete previamente `gpu-host-check.sh`, pesos conferidos e segunda execução de `models-pull.sh` com zero downloads. Runtimes CUDA/imports/licenças e piloto only-lo precisam da prova real descrita neste guia. Estabeleça o túnel privado com host key conferida antes de iniciar o supervisor:
+
+```bash
+bash infra/scripts/check-release.sh --role worker
+bash infra/scripts/install.sh --role worker
+```
+
+O supervisor não usa `network_mode: none`: precisa alcançar a API interna. Only-lo é exigência dos subprocessos de inferência e do piloto isolado. Processo worker iniciado não comprova pesos, VRAM, qualidade ou geração; confirme heartbeat e um job real. Não entregue receita sintética para liberar o formulário.
+
+O guard sem `--role` verifica os dois papéis e toda documentação. Ele valida configuração/digests, não disponibilidade ou conteúdo da imagem no registro nem aceite do cliente. `--no-pull` só é permitido quando as imagens imutáveis já foram puxadas/verificadas no cache; se faltar alguma, o instalador para sem download/build implícito.
+
+### Reprodutibilidade e aceite
+
+Repita a instalação no cliente a partir de clone/diretório limpo do mesmo commit, ambiente privado e digests registrados, sem substituir volumes ativos. Reinstalar sobre o mesmo projeto preserva banco e arquivos; não execute seed nem `down --volumes`. Para exercício isolado use projeto novo, overrides de portas em loopback e volumes próprios; jamais teste restauração sobre a instalação ativa.
+
+Confirme DNS/certificado HTTPS externamente, login/logout, catálogo real autorizado, `/internal/v1` inacessível pelo domínio, banco sem porta publicada e comunicação GPU→API pelo túnel. Instalação local não comprova esses controles remotos. Siga [OPERACAO.md](OPERACAO.md) para backup/restore e [o procedimento de homologação](../homologacao/PROCEDIMENTO.md) para os cenários e aceite humano.
