@@ -30,7 +30,33 @@ from avatar_api.jobs import (
 )
 from avatar_api.models import Avatar, Scene, StoredFile, VideoJob
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
+
+class PublicErrorDetail(BaseModel):
+    code: str
+    message: str
+    request_id: str
+    field: str | None = None
+
+
+class PublicErrorOut(BaseModel):
+    error: PublicErrorDetail
+
+
+router = APIRouter(
+    prefix="/api/v1",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        401: {"model": PublicErrorOut, "description": "Chave de API ausente ou inválida."},
+        404: {"model": PublicErrorOut, "description": "Recurso não encontrado ou de outra chave."},
+        409: {
+            "model": PublicErrorOut,
+            "description": "Conflito de intenção ou vídeo indisponível.",
+        },
+        422: {"model": PublicErrorOut, "description": "Dados inválidos ou fala acima do limite."},
+        500: {"model": PublicErrorOut, "description": "Erro interno."},
+        503: {"model": PublicErrorOut, "description": "Banco ou receita vigente indisponível."},
+    },
+)
 
 AspectRatio = Annotated[Literal["9:16", "16:9"], Query()]
 
@@ -65,7 +91,18 @@ def get_job(job_id: uuid.UUID, key: CurrentApiKey, db: DbSession) -> JobOut:
     return job_out(_own_job(db, key, job_id), "/api/v1")
 
 
-@router.get("/jobs/{job_id}/download")
+@router.get(
+    "/jobs/{job_id}/download",
+    response_class=FileResponse,
+    responses={
+        200: {"content": {"video/mp4": {"schema": {"type": "string", "format": "binary"}}}},
+        206: {
+            "description": "Intervalo solicitado por Range.",
+            "content": {"video/mp4": {"schema": {"type": "string", "format": "binary"}}},
+        },
+        416: {"description": "Intervalo Range fora do arquivo."},
+    },
+)
 def download_job(
     job_id: uuid.UUID, key: CurrentApiKey, db: DbSession, request: Request
 ) -> FileResponse:
@@ -138,7 +175,11 @@ def list_scenes(db: DbSession) -> SceneListOut:
     )
 
 
-@router.get("/avatars/{avatar_id}/preview")
+@router.get(
+    "/avatars/{avatar_id}/preview",
+    response_class=FileResponse,
+    responses={200: {"content": {"image/png": {"schema": {"type": "string", "format": "binary"}}}}},
+)
 def avatar_preview(
     avatar_id: uuid.UUID, db: DbSession, request: Request, aspect_ratio: AspectRatio = "9:16"
 ) -> FileResponse:
@@ -148,7 +189,11 @@ def avatar_preview(
     )
 
 
-@router.get("/scenes/{scene_id}/preview")
+@router.get(
+    "/scenes/{scene_id}/preview",
+    response_class=FileResponse,
+    responses={200: {"content": {"image/png": {"schema": {"type": "string", "format": "binary"}}}}},
+)
 def scene_preview(
     scene_id: uuid.UUID, db: DbSession, request: Request, aspect_ratio: AspectRatio = "9:16"
 ) -> FileResponse:
