@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from avatar_worker.recipe import RecipeError, check_recipe, load_recipe, main
+from avatar_worker.recipe import RecipeError, check_recipe, load_recipe, main, recipe_from_mapping
 
 MODELS_DIR = Path(__file__).resolve().parents[3] / "docs" / "models"
 RECIPE_PATH = MODELS_DIR / "RECIPE-v1.json"
@@ -232,6 +232,17 @@ def test_frozen_recipe_requires_each_inference_and_export_stage(tmp_path, aspect
         load_recipe(path, MANIFEST_PATH, require_frozen=True)
     assert main(["validate", str(path), "--manifest", str(MANIFEST_PATH), "--frozen"]) == 1
 
+
+def test_complete_metadata_does_not_authorize_draft_for_production(tmp_path):
+    raw = _recipe(_frozen, _set("status", "draft"))
+    path = _write(tmp_path, raw)
+
+    assert load_recipe(path, MANIFEST_PATH).status == "draft"
+    with pytest.raises(RecipeError):
+        recipe_from_mapping(raw, MANIFEST, require_frozen=True)
+    with pytest.raises(RecipeError):
+        load_recipe(path, MANIFEST_PATH, require_frozen=True)
+    assert main(["validate", str(path), "--manifest", str(MANIFEST_PATH), "--frozen"]) == 1
 
 
 def test_unreadable_files_are_reported(tmp_path, capsys):
