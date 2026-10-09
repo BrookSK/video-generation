@@ -1,0 +1,10 @@
+# VPS CPU: base + cpu + api; somente API/PostgreSQL/Caddy por padrão.
+# O worker GPU separado reivindica vídeo e preparação, sem competição CPU sem pesos.
+services:
+  api:
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+
+  worker:
+    profiles: [cpu-assets]
+    # Ative este perfil apenas se a preparação CPU e seus pesos forem verificados.
