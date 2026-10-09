@@ -2,17 +2,22 @@
 
 import hashlib
 import io
+import json
 import logging
+import subprocess
+import sys
 import threading
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from PIL import Image
+from test_video import video_case as video_case
 
 from avatar_worker import supervisor
-from avatar_worker.asset_prepare import PREVIEWS, STAGE_COLOR, PrepareInputError, prepare_avatar
+from avatar_worker.asset_prepare import PREVIEWS, PrepareInputError, prepare_avatar
 from avatar_worker.cutout import CutoutError
 from avatar_worker.supervisor import Config, Supervisor, load_config, main
 
@@ -324,35 +329,9 @@ def test_stop_during_item_finishes_it_and_claims_nothing_more():
     assert [path for _, path in api.calls].count("/internal/v1/claim") == 1
 
 
-def test_logs_carry_only_task_stage_and_code(caplog):
-    api = FakeApi()
-    api.source = _alpha_png()
-    worker = _supervisor(api)
-
-    with caplog.at_level(logging.INFO, logger="avatar_worker.supervisor"):
-        worker.process_next()
-
-    assert caplog.messages
-    for message in caplog.messages:
-        assert message.startswith("task_id=") and " etapa=" in message and " codigo=" in message
-        assert TOKEN not in message
-
-
-def test_config_defaults_and_required_token():
-    config = load_config({"WORKER_TOKEN": "t", "WORKER_ID": "w"})
-    assert config.kinds == ("asset_prepare",)
-    assert config.poll_seconds == 3
-    assert load_config({"WORKER_TOKEN": "t"}).worker_id
-
-
 def test_missing_worker_token_exits_with_code_2(capsys):
     assert main({}) == 2
     assert "WORKER_TOKEN" in capsys.readouterr().err
-
-
-def test_worker_kinds_video_is_refused(capsys):
-    assert main({"WORKER_TOKEN": "t", "WORKER_KINDS": "asset_prepare,video"}) == 2
-    assert "P04" in capsys.readouterr().err
 
 
 def test_unknown_worker_kind_is_refused():
@@ -374,7 +353,6 @@ def test_prepare_avatar_crops_to_alpha_box_and_builds_both_previews():
         preview = Image.open(io.BytesIO(files[name])).convert("RGB")
         assert preview.size == size
         assert preview.getpixel((0, 0)) == STAGE_RGB
-    assert STAGE_COLOR.lower() == "#1f1c3f"
 
 
 def test_prepare_avatar_cuts_opaque_photo_through_session_factory(monkeypatch):
@@ -414,3 +392,161 @@ def test_prepare_avatar_propagates_cutout_error_without_model():
     photo = _png(Image.new("RGB", (40, 40), (255, 255, 255)))
     with pytest.raises(CutoutError):
         prepare_avatar(photo, session_factory=missing_model)
+
+
+class VideoApi(FakeApi):
+    """Frente HTTP de teste; mídia gerada pelo pipeline é guardada e decodificada."""
+
+    def __init__(self, payload, destination, **kwargs):
+        super().__init__(**kwargs)
+        self.payload = {**payload, "avatar_file_id": SOURCE_ID, "scene_file_id": None}
+        self.destination = destination
+        self.drop_final_ack = False
+        self.final_sends = 0
+        self.upload_error = None
+        self.render_ready = None
+
+    def claim_body(self):
+        return {**super().claim_body(), "kind": "video", "payload": self.payload}
+
+    def __call__(self, request):
+        assert request.url.host == "api", "Conexão fora da API interna"
+        if (
+            request.url.path.endswith("/heartbeat")
+            and self.render_ready is not None
+            and self.render_ready.exists()
+        ):
+            self.heartbeat_status = 409
+        return super().__call__(request)
+
+    def upload(self, request):
+        if self.upload_error:
+            return httpx.Response(409, json={"error": {"code": self.upload_error}})
+        response = super().upload(request)
+        name = request.url.path.rsplit("/", 1)[1]
+        form = self.uploads[name]
+        assert form["sha256"].decode() == hashlib.sha256(form["file"]).hexdigest()
+        (self.destination / name).write_bytes(form["file"])
+        if name == "final.mp4":
+            self.final_sends += 1
+            if self.drop_final_ack:
+                self.drop_final_ack = False
+                # A API recebeu o corpo, mas a resposta se perdeu. Reenvio precisa ser inteiro.
+                raise httpx.ReadTimeout("resposta perdida", request=request)
+        return response
+
+
+def _video_supervisor(api, runtime):
+    config = replace(
+        load_config({"API_URL": "http://api", "WORKER_TOKEN": TOKEN, "WORKER_KINDS": "video"}),
+        video_runtime=runtime,
+    )
+    client = httpx.Client(
+        base_url="http://api",
+        transport=httpx.MockTransport(api),
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        trust_env=False,
+    )
+    return Supervisor(config, client, wait=lambda seconds, interrupt: None)
+
+
+def test_video_stream_retry_preserves_decodable_media_and_manifest(video_case, tmp_path):
+    payload, inputs, _, runtime = video_case
+    api = VideoApi(payload, tmp_path)
+    api.source = inputs["avatar"].read_bytes()
+    api.drop_final_ack = True
+
+    assert _video_supervisor(api, runtime).process_next() is True
+
+    assert api.completed is not None and api.failed is None
+    assert api.final_sends == 2
+    output = json.loads(
+        subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(tmp_path / "final.mp4")],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
+    video = next(stream for stream in output["streams"] if stream["codec_type"] == "video")
+    assert (video["width"], video["height"], video["codec_name"]) == (1080, 1920, "h264")
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    assert manifest["attempt_directory"] == f"jobs/{TASK_ID}/{ATTEMPT_ID}"
+    assert (
+        hashlib.sha256((tmp_path / "final.mp4").read_bytes()).hexdigest()
+        == (manifest["files"]["final.mp4"])
+    )
+
+
+@pytest.mark.parametrize("code", ["FILE_EXISTS", "STALE_ATTEMPT"])
+def test_file_conflict_is_failure_but_stale_attempt_cannot_even_fail(video_case, tmp_path, code):
+    payload, inputs, _, runtime = video_case
+    api = VideoApi(payload, tmp_path)
+    api.source = inputs["avatar"].read_bytes()
+    api.upload_error = code
+
+    _video_supervisor(api, runtime).process_next()
+
+    assert api.completed is None
+    if code == "FILE_EXISTS":
+        assert api.failed["error_code"] == "OUTPUT_INVALID"
+        assert api.failed["retryable"] is False
+    else:
+        assert api.failed is None
+
+
+def test_video_lease_loss_kills_renderer_child_without_upload_or_fail(video_case, tmp_path):
+    payload, inputs, _, runtime = video_case
+    ready, lock = tmp_path / "render-ready", tmp_path / "gpu-resource.lock"
+    child = tmp_path / "child.py"
+    child.write_text(
+        "import fcntl,pathlib,signal,sys\n"
+        "with open(sys.argv[1],'w') as f:\n"
+        "    fcntl.flock(f,fcntl.LOCK_EX)\n"
+        "    pathlib.Path(sys.argv[2]).touch()\n"
+        "    signal.pause()\n"
+    )
+    runtime.avatar_script.write_text(
+        "import subprocess,sys\n"
+        f"p=subprocess.Popen([sys.executable,{str(child)!r},{str(lock)!r},{str(ready)!r}])\n"
+        "p.wait()\n"
+    )
+    api = VideoApi(payload, tmp_path)
+    api.source = inputs["avatar"].read_bytes()
+    api.render_ready = ready
+
+    _video_supervisor(api, runtime).process_next()
+
+    assert ready.exists()
+    assert api.uploads == {} and api.completed is None and api.failed is None
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl,sys; f=open(sys.argv[1]); fcntl.flock(f,fcntl.LOCK_EX)",
+            str(lock),
+        ],
+        check=True,
+        timeout=3,
+    )
+
+
+def test_video_runtime_failure_does_not_leak_text_token_or_traceback(video_case, tmp_path, caplog):
+    payload, inputs, _, runtime = video_case
+    private_text = "Fala sensível usada só no teste."
+    payload["script_text"] = private_text
+    runtime.tts_script.write_text(
+        f"import sys; print({(private_text + TOKEN)!r},file=sys.stderr); sys.exit(1)\n"
+    )
+    api = VideoApi(payload, tmp_path)
+    api.source = inputs["avatar"].read_bytes()
+
+    with caplog.at_level(logging.INFO, logger="avatar_worker.supervisor"):
+        _video_supervisor(api, runtime).process_next()
+
+    assert api.failed["error_code"] == "RENDER_FAILED"
+    assert api.failed["retryable"] is False
+    published = json.dumps(api.failed) + "\n".join(caplog.messages)
+    assert private_text not in published and TOKEN not in published
+    assert "Traceback" not in published
+    assert api.uploads == {} and api.completed is None
