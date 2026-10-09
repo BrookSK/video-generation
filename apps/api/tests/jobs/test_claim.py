@@ -16,7 +16,15 @@ from avatar_api.config import Settings
 from avatar_api.db import create_db_engine
 from avatar_api.devseed import DevCatalog
 from avatar_api.main import create_app
-from avatar_api.models import AssetPrepareTask, Avatar, JobAttempt, RenderRecipe, Scene, VideoJob
+from avatar_api.models import (
+    AssetPrepareTask,
+    Avatar,
+    JobAttempt,
+    RenderRecipe,
+    Scene,
+    VideoJob,
+    WorkerHeartbeat,
+)
 
 WORKER_TOKEN = "token-do-worker-de-teste"
 WORKER = {"Authorization": f"Bearer {WORKER_TOKEN}"}
@@ -240,6 +248,28 @@ def test_fila_vazia_devolve_204(client: TestClient, make_job):
 
     assert response.status_code == 204
     assert response.content == b""
+
+
+def test_presenca_ociosa_persiste_e_cpu_nao_mascara_gpu(
+    client: TestClient, settings: Settings, worker_engine: Engine
+):
+    with Session(worker_engine) as reader:
+        assert jobs.last_video_worker_heartbeat(reader) is None
+    assert claim(client, ["asset_prepare"], "cpu").status_code == 204
+    with Session(worker_engine) as reader:
+        assert jobs.last_video_worker_heartbeat(reader) is None
+
+    assert claim(client, ["video"], "gpu").status_code == 204
+    first = fresh(worker_engine, WorkerHeartbeat, "gpu").last_heartbeat_at
+    # Reinício da aplicação não depende de um job ou cache em memória.
+    with TestClient(create_app(settings)) as restarted:
+        assert claim(restarted, ["asset_prepare"], "cpu").status_code == 204
+    with Session(worker_engine) as reader:
+        assert jobs.last_video_worker_heartbeat(reader) == first
+        assert reader.get(WorkerHeartbeat, "cpu") is None
+
+    assert claim(client, ["video"], "gpu").status_code == 204
+    assert fresh(worker_engine, WorkerHeartbeat, "gpu").last_heartbeat_at > first
 
 
 def test_claim_segue_fifo_por_created_at(client: TestClient, make_job):
@@ -493,6 +523,9 @@ def test_heartbeat_de_video_renova_lease_e_grava_etapa(
         1,
     )
 
+    presence = fresh(worker_engine, WorkerHeartbeat, "worker-a")
+    assert presence.last_heartbeat_at == attempt.last_heartbeat_at
+
 
 def test_heartbeat_sem_etapa_mantem_a_etapa(client: TestClient, make_job, worker_engine):
     job_id = make_job()
@@ -551,6 +584,9 @@ def test_heartbeat_da_tentativa_obsoleta_devolve_409_e_nao_altera_o_item(
     second = claim(client, [kind], "b").json()
     assert second["lease_generation"] == 2
     current = fresh(worker_engine, model, item_id)
+    presence = (
+        fresh(worker_engine, WorkerHeartbeat, "b").last_heartbeat_at if kind == "video" else None
+    )
 
     stale_generation = heartbeat(client, path, item_id, second["attempt_id"], 1)
     stale_attempt = heartbeat(client, path, item_id, first["attempt_id"], 2)
@@ -567,6 +603,9 @@ def test_heartbeat_da_tentativa_obsoleta_devolve_409_e_nao_altera_o_item(
         "b",
     )
     assert after.current_attempt_id == uuid.UUID(second["attempt_id"])
+    if kind == "video":
+        assert fresh(worker_engine, WorkerHeartbeat, "b").last_heartbeat_at == presence
+        assert fresh(worker_engine, WorkerHeartbeat, "a").last_heartbeat_at < presence
     assert heartbeat(client, path, item_id, second["attempt_id"], 2).status_code == 200
 
 

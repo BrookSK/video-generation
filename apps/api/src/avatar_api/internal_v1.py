@@ -75,7 +75,7 @@ def claim(body: ClaimIn, db: DbSession, request: Request):
     settings = request.app.state.settings
     claimed = jobs.claim_next(db, body.worker_id, body.kinds, settings.lease_seconds)
     if claimed is None:
-        db.rollback()
+        db.commit()
         return Response(status_code=204)
     db.commit()
     return ClaimOut(

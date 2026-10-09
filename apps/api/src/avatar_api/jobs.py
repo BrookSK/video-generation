@@ -16,6 +16,7 @@ from typing import Annotated, Any, BinaryIO, Literal
 
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,7 @@ from avatar_api.models import (
     Scene,
     StoredFile,
     VideoJob,
+    WorkerHeartbeat,
 )
 from avatar_api.storage import resolve_path, save_stream
 from avatar_api.uploads import validate_image
@@ -258,6 +260,21 @@ def _asset_payload(session: Session, task: AssetPrepareTask) -> AssetPreparePayl
     return AssetPreparePayload(avatar_id=task.avatar_id, source_file_id=source_file_id)
 
 
+def _record_video_worker(session: Session, worker_id: str) -> None:
+    session.execute(
+        insert(WorkerHeartbeat)
+        .values(worker_id=worker_id, last_heartbeat_at=func.now())
+        .on_conflict_do_update(
+            index_elements=[WorkerHeartbeat.worker_id],
+            set_={"last_heartbeat_at": func.now()},
+        )
+    )
+
+
+def last_video_worker_heartbeat(session: Session) -> datetime | None:
+    return session.scalar(select(func.max(WorkerHeartbeat.last_heartbeat_at)))
+
+
 def claim_next(
     session: Session, worker_id: str, kinds: list[QueueKind], lease_seconds: int
 ) -> Claim | None:
@@ -267,6 +284,8 @@ def claim_next(
     pular para a próxima, sem esperar e sem devolver o mesmo item. O lease vem de now() do
     banco. Não faz commit: o chamador faz, e só depois disso o item pertence ao worker.
     """
+    if "video" in kinds:
+        _record_video_worker(session, worker_id)
     for kind in dict.fromkeys(kinds):
         model = QUEUE_MODELS[kind]
         item = session.scalar(
@@ -381,6 +400,7 @@ def heartbeat(
             .where(JobAttempt.attempt_id == attempt_id)
             .values(last_heartbeat_at=func.now())
         )
+        _record_video_worker(session, item.worker_id)
     session.flush()
     session.refresh(item)
     lease_until = item.lease_until
