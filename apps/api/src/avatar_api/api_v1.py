@@ -13,7 +13,13 @@ from sqlalchemy import select
 from avatar_api import assets
 from avatar_api.auth import CurrentApiKey, DbSession, require_api_key
 from avatar_api.errors import ApiError
-from avatar_api.jobs import IDEMPOTENCY_KEY_MAX_CHARS, JobRequester, NewVideoJob, create_video_job
+from avatar_api.jobs import (
+    IDEMPOTENCY_KEY_MAX_CHARS,
+    JobRequester,
+    NewVideoJob,
+    create_video_job,
+    last_video_worker_heartbeat,
+)
 from avatar_api.models import Avatar, Scene, StoredFile, VideoJob
 from avatar_api.storage import resolve_path
 
@@ -24,6 +30,15 @@ IdempotencyKey = Annotated[
 ]
 JobStatus = Literal["queued", "processing", "ready", "failed"]
 AspectRatio = Annotated[Literal["9:16", "16:9"], Query()]
+
+
+class WorkerStatusOut(BaseModel):
+    last_heartbeat_at: datetime | None
+
+
+@router.get("/worker-status")
+def worker_status(db: DbSession) -> WorkerStatusOut:
+    return WorkerStatusOut(last_heartbeat_at=last_video_worker_heartbeat(db))
 
 
 class JobCreatedOut(BaseModel):

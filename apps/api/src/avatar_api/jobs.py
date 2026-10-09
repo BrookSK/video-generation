@@ -12,10 +12,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Annotated, BinaryIO, Literal
+from typing import Annotated, Any, BinaryIO, Literal
 
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,7 @@ from avatar_api.models import (
     Scene,
     StoredFile,
     VideoJob,
+    WorkerHeartbeat,
 )
 from avatar_api.storage import resolve_path, save_stream
 from avatar_api.uploads import validate_image
@@ -212,6 +214,9 @@ class VideoPayload(BaseModel):
     voice: str
     aspect_ratio: str
     recipe_id: uuid.UUID
+    recipe_spec: dict[str, Any]
+    background_color: str | None
+    composition: dict[str, dict[str, float]]
 
 
 class AssetPreparePayload(BaseModel):
@@ -229,7 +234,10 @@ class Claim:
     payload: VideoPayload | AssetPreparePayload
 
 
-def _video_payload(job: VideoJob) -> VideoPayload:
+def _video_payload(session: Session, job: VideoJob) -> VideoPayload:
+    # Receitas e parâmetros de cenas não são editáveis: IDs do job preservam a versão.
+    recipe = session.get(RenderRecipe, job.recipe_id)
+    scene = session.get(Scene, job.scene_id)
     return VideoPayload(
         script_text=job.script_text,
         avatar_id=job.avatar_id,
@@ -239,6 +247,9 @@ def _video_payload(job: VideoJob) -> VideoPayload:
         voice=job.voice,
         aspect_ratio=job.aspect_ratio,
         recipe_id=job.recipe_id,
+        recipe_spec=recipe.spec,
+        background_color=scene.background_color,
+        composition=scene.composition,
     )
 
 
@@ -247,6 +258,21 @@ def _asset_payload(session: Session, task: AssetPrepareTask) -> AssetPreparePayl
         select(Avatar.source_file_id).where(Avatar.id == task.avatar_id)
     )
     return AssetPreparePayload(avatar_id=task.avatar_id, source_file_id=source_file_id)
+
+
+def _record_video_worker(session: Session, worker_id: str) -> None:
+    session.execute(
+        insert(WorkerHeartbeat)
+        .values(worker_id=worker_id, last_heartbeat_at=func.now())
+        .on_conflict_do_update(
+            index_elements=[WorkerHeartbeat.worker_id],
+            set_={"last_heartbeat_at": func.now()},
+        )
+    )
+
+
+def last_video_worker_heartbeat(session: Session) -> datetime | None:
+    return session.scalar(select(func.max(WorkerHeartbeat.last_heartbeat_at)))
 
 
 def claim_next(
@@ -258,6 +284,8 @@ def claim_next(
     pular para a próxima, sem esperar e sem devolver o mesmo item. O lease vem de now() do
     banco. Não faz commit: o chamador faz, e só depois disso o item pertence ao worker.
     """
+    if "video" in kinds:
+        _record_video_worker(session, worker_id)
     for kind in dict.fromkeys(kinds):
         model = QUEUE_MODELS[kind]
         item = session.scalar(
@@ -290,7 +318,9 @@ def claim_next(
         session.flush()
         session.refresh(item)
         payload = (
-            _video_payload(item) if isinstance(item, VideoJob) else _asset_payload(session, item)
+            _video_payload(session, item)
+            if isinstance(item, VideoJob)
+            else _asset_payload(session, item)
         )
         return Claim(
             kind=kind,
@@ -370,6 +400,7 @@ def heartbeat(
             .where(JobAttempt.attempt_id == attempt_id)
             .values(last_heartbeat_at=func.now())
         )
+        _record_video_worker(session, item.worker_id)
     session.flush()
     session.refresh(item)
     lease_until = item.lease_until
@@ -510,7 +541,13 @@ def _written_by(stored: StoredFile | None, expected_path: str, attempt_id: uuid.
 
 def _intact(data_dir: Path, stored: StoredFile) -> bool:
     path = resolve_path(data_dir, stored)
-    return path.is_file() and path.stat().st_size == stored.size_bytes
+    try:
+        if not path.is_file() or path.stat().st_size != stored.size_bytes:
+            return False
+        with path.open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest() == stored.sha256
+    except OSError:
+        return False
 
 
 def _own_result_file(

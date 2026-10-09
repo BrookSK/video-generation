@@ -1,0 +1,26 @@
+# VPS GPU Linux: conecta o túnel SSH local à API na VPS CPU.
+# Serviço separado; não inclui PostgreSQL nem o volume /data.
+name: avatar-gpu
+
+services:
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      API_URL: ${API_URL:-http://127.0.0.1:18000}
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+      WORKER_ID: ${WORKER_ID:-gpu-01}
+      WORKER_KINDS: video,asset_prepare
+      MODELS_DIR: /models
+    volumes:
+      - ${MODELS_DIR:-/srv/avatar/models}:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

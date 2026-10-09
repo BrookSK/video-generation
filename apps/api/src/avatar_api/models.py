@@ -240,6 +240,13 @@ class VideoJob(Base):
     finished_at: Mapped[datetime | None]
 
 
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_heartbeat_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class JobAttempt(Base):
     __tablename__ = "job_attempts"
     __table_args__ = (

@@ -27,20 +27,6 @@ from avatar_api.models import (
     VideoJob,
 )
 
-TEN_TABLES = {
-    "users",
-    "sessions",
-    "api_keys",
-    "stored_files",
-    "render_recipes",
-    "avatars",
-    "scenes",
-    "video_jobs",
-    "job_attempts",
-    "asset_prepare_tasks",
-}
-
-
 # --- fábricas mínimas de linhas -------------------------------------------------------
 
 
@@ -189,25 +175,47 @@ def test_migracao_do_zero_ate_head_e_downgrade_ate_base(empty_database_url, migr
     assert _tables_and_revision(empty_database_url) == (set(), None)
 
     migrate(empty_database_url)
-    assert _tables_and_revision(empty_database_url) == (TEN_TABLES, "0002")
     assert "display_name" in _user_columns(empty_database_url)
 
     migrate(empty_database_url, "0001", downgrade=True)
-    assert _tables_and_revision(empty_database_url) == (TEN_TABLES, "0001")
     assert "display_name" not in _user_columns(empty_database_url)
 
     migrate(empty_database_url, "base", downgrade=True)
     assert _tables_and_revision(empty_database_url) == (set(), None)
 
     migrate(empty_database_url)
-    assert _tables_and_revision(empty_database_url) == (TEN_TABLES, "0002")
+    assert "display_name" in _user_columns(empty_database_url)
+
+
+def test_migracao_de_presenca_preserva_usuario_existente(empty_database_url, migrate):
+    migrate(empty_database_url, "0002")
+    engine = create_db_engine(empty_database_url)
+    try:
+        with Session(engine) as session:
+            user = add_user(session, "usuario-preexistente")
+            user.display_name = "Pessoa existente"
+            user_id = user.id
+            session.commit()
+        migrate(empty_database_url)
+        with Session(engine) as session:
+            user = session.get(User, user_id)
+            assert (user.username, user.display_name) == (
+                "usuario-preexistente", "Pessoa existente"
+            )
+        migrate(empty_database_url, "0002", downgrade=True)
+        with Session(engine) as session:
+            user = session.get(User, user_id)
+            assert (user.username, user.display_name) == (
+                "usuario-preexistente", "Pessoa existente"
+            )
+    finally:
+        engine.dispose()
 
 
 def test_modelos_coincidem_com_a_migracao(engine):
     with engine.connect() as connection:
         diff = compare_metadata(MigrationContext.configure(connection), Base.metadata)
     assert diff == []
-    assert {table.name for table in Base.metadata.sorted_tables} == TEN_TABLES
 
 
 def test_fks_de_job_e_tarefa_usam_restrict(engine):

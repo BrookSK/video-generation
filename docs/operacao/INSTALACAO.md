@@ -1,4 +1,4 @@
-# Instalação no servidor GPU do cliente
+# Instalação nas VPS API e GPU do cliente
 
 Procedimento executado com o cliente, no servidor dele, a partir de um clone do repositório.
 Todos os comandos rodam na raiz do clone. Nenhum token ou senha entra nos comandos abaixo.
@@ -174,9 +174,9 @@ persistidos e a disponibilidade da imagem após restabelecer a instância são
 desconhecidos. Não há evidência para atribuir a interrupção à RAM.
 
 O download completo, a segunda execução sem downloads e a geração de vídeos
-não foram comprovados: P02/T13 continua pendente, assim como as provas de
-piloto/congelamento de T14/T15. Suas obrigações serão replanejadas na P06 após
-reaprovação do pacote; o ajuste não as declara executadas. Quando o cliente
+não foram comprovados. As obrigações originalmente P02/T13–T15 foram
+transferidas à P06 pelo pacote reaprovado; P02 local concluída não as declara
+executadas. Quando o cliente
 restabelecer o acesso GPU, confira o volume e a imagem, depois reexecute
 `models-pull.sh` com o `MODELS_DIR` do volume. O comando revalida os hashes dos
 arquivos existentes e baixa novamente os ausentes ou inválidos; não dispense
@@ -229,6 +229,92 @@ credencial de banco nem acesso direto aos volumes da API. `network_mode: none`
 e interfaces só `lo` continuam obrigatórios no piloto isolado, não no supervisor
 que precisa dessa comunicação interna. Nenhuma conexão de controle autoriza
 uso de SaaS de inferência ou gastos.
+
+## Supervisor e API em duas VPS
+
+Configuração disponível no código; instalação e conectividade reais serão
+comprovadas na P06. Em ambas, use o mesmo release e crie `infra/compose/.env`
+com permissão `0600`. O token interno deve ser igual nos dois servidores.
+Só a VPS API recebe `POSTGRES_PASSWORD`; não copie essa senha para a GPU.
+
+Na VPS API:
+
+```bash
+docker compose -f infra/compose/docker-compose.yml \
+  -f infra/compose/docker-compose.cpu.yml \
+  -f infra/compose/docker-compose.api.yml up -d --build --wait
+```
+
+API e PostgreSQL usam os volumes existentes. O bind de API é somente
+`127.0.0.1:8000`; o painel usa `127.0.0.1:8088` até a publicação HTTPS final.
+O worker CPU fica no perfil opcional `cpu-assets`, desativado por padrão:
+o worker GPU prepara avatares e gera vídeos. Não ative um consumidor CPU
+sem conferir seus pesos e a preparação real. O Caddy continua bloqueando
+`/internal/v1`; não publique a porta 8000 em `0.0.0.0`.
+
+Na VPS GPU Linux, configure uma identidade SSH autorizada para o servidor API,
+com host key verificada. Restrinja o encaminhamento dessa identidade a
+`127.0.0.1:8000` (`PermitOpen`); não desative a verificação de host key.
+O alias `avatar-api` abaixo pertence ao SSH config do operador:
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 -L 127.0.0.1:18000:127.0.0.1:8000 avatar-api
+```
+
+Mantenha o túnel sob supervisão do sistema com essa identidade, antes de iniciar
+o worker. Reinicie-o se cair. Em outro terminal da GPU:
+
+```bash
+docker compose -f infra/compose/docker-compose.worker.yml up -d --build
+docker compose -f infra/compose/docker-compose.worker.yml logs --follow worker
+```
+
+`network_mode: host` é Linux e permite alcançar o túnel local em
+`http://127.0.0.1:18000` (`API_URL`). Não monta `/data` nem acessa PostgreSQL.
+`MODELS_DIR` é o caminho absoluto no host, montado em `/models` somente leitura;
+o processo usa os runtimes copiados para a imagem. O CMD inicia
+`python -m avatar_worker.supervisor`, uma tarefa por vez. Não use a variante
+CPU para gerar vídeo. O piloto isolado continua usando rede `none`.
+
+Cheque `/readyz` diretamente na API interna: espera JSON com banco e storage
+ok, não HTML do painel. Com uma chave pública, `GET /api/v1/worker-status`
+devolve `last_heartbeat_at` ou `null`. Claim de vídeo atualiza esse registro
+inclusive com fila vazia; polling somente `asset_prepare` não o atualiza.
+Timestamp antigo não é garantia de worker disponível. O aviso de ausência
+superior a dois minutos pertence ao painel da P05.
+
+### Geração, arquivos e recuperação
+
+Carregue somente uma receita realmente congelada após o piloto da P06.
+Sem receita vigente a API recusa criação; draft ou frozen incompleta não
+executam inferência no worker. O claim transporta a receita vinculada ao job,
+voz, arquivos, cor e enquadramento: mudar a receita vigente não muda esse job.
+
+Etapas: `compose`, `tts`, `render`, `finalize`, `upload`. O TTS encerra antes
+de iniciar o avatar. O WAV real precisa respeitar o limite; o final é H.264,
+yuv420p, 25 fps e AAC 48 kHz, 1080×1920 ou 1920×1080, com faststart.
+Cada tentativa guarda `manifest.json`, `audio.wav`, `render.mp4` e `final.mp4`
+no storage da API. O manifesto contém receita, SHA-256 do texto (não seu
+conteúdo), hashes da mídia, tempos medidos e VRAM quando observada; desconhecida
+permanece `null`. Consultas públicas não expõem caminhos internos.
+
+Heartbeat perdido/obsoleto cancela o grupo de subprocessos antes de publicar.
+O varredor reencaminha leases vencidos até três tentativas; a tentativa antiga
+recebe `409 STALE_ATTEMPT`. Upload reabre o arquivo em cada retry e complete
+confere tamanho e SHA-256 antes de marcar `ready`. Não altere arquivos de
+tentativa manualmente. Falhas permanentes, incluindo OOM ou saída inválida,
+ficam `failed`; diagnósticos de inferência não são enviados como erro público.
+Consulte job e logs pelo identificador, sem registrar token ou texto da fala.
+
+### Limite das provas locais
+
+SCN-009 exercita HTTP, PostgreSQL migrado, supervisor, arquivos e FFmpeg reais,
+nos dois formatos, com doubles apenas nas fronteiras TTS/avatar e receita
+isolada de teste. Não comprova inferência GPU, qualidade, tempo, memória,
+conexão entre as VPS nem aprovação do cliente. Esses gates permanecem P06;
+nunca carregue fixtures como receita de produção.
+
 
 ## Pesos dos modelos
 

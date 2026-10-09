@@ -104,3 +104,5 @@ RUN useradd --no-log-init --uid 10001 --user-group --create-home --shell /usr/sb
 USER app
 
 WORKDIR /app
+
+CMD ["python", "-m", "avatar_worker.supervisor"]

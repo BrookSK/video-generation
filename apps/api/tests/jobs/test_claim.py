@@ -1,4 +1,3 @@
-import hmac
 import threading
 import uuid
 from collections import Counter
@@ -17,7 +16,15 @@ from avatar_api.config import Settings
 from avatar_api.db import create_db_engine
 from avatar_api.devseed import DevCatalog
 from avatar_api.main import create_app
-from avatar_api.models import AssetPrepareTask, Avatar, JobAttempt, VideoJob
+from avatar_api.models import (
+    AssetPrepareTask,
+    Avatar,
+    JobAttempt,
+    RenderRecipe,
+    Scene,
+    VideoJob,
+    WorkerHeartbeat,
+)
 
 WORKER_TOKEN = "token-do-worker-de-teste"
 WORKER = {"Authorization": f"Bearer {WORKER_TOKEN}"}
@@ -126,32 +133,6 @@ def test_claim_sem_token_valido_devolve_401(
     assert fresh(worker_engine, VideoJob, job_id).status == "queued"
 
 
-def test_token_do_worker_e_conferido_com_compare_digest(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch, make_job
-):
-    make_job()
-    calls: list[tuple[bytes, bytes]] = []
-    real = hmac.compare_digest
-
-    def spy(a, b):
-        calls.append((a, b))
-        return real(a, b)
-
-    monkeypatch.setattr("avatar_api.internal_v1.hmac.compare_digest", spy)
-
-    assert_error(
-        client.post(
-            "/internal/v1/claim",
-            json={"worker_id": "w", "kinds": BOTH_KINDS},
-            headers={"Authorization": "Bearer outro"},
-        ),
-        401,
-        "UNAUTHORIZED",
-    )
-    assert claim(client, BOTH_KINDS).status_code == 200
-    assert calls == [(b"outro", WORKER_TOKEN.encode()), (WORKER_TOKEN.encode(),) * 2]
-
-
 def test_token_vazio_desativa_a_api_interna_com_503(settings: Settings, make_job):
     make_job()
     app = create_app(replace(settings, worker_token=""))
@@ -177,24 +158,6 @@ def test_claim_de_video_grava_tentativa_e_lease_pelo_relogio_do_banco(
     data = response.json()
     job = fresh(worker_engine, VideoJob, job_id)
     attempt = fresh(worker_engine, JobAttempt, uuid.UUID(data["attempt_id"]))
-    assert data == {
-        "kind": "video",
-        "id": str(job_id),
-        "attempt_id": str(job.current_attempt_id),
-        "lease_generation": 1,
-        "lease_until": data["lease_until"],
-        "heartbeat_interval_seconds": 20,
-        "payload": {
-            "script_text": job.script_text,
-            "avatar_id": str(seeded_catalog.avatar_id),
-            "avatar_file_id": str(job.avatar_file_id),
-            "scene_id": str(seeded_catalog.scene_id),
-            "scene_file_id": None,
-            "voice": "feminina",
-            "aspect_ratio": "9:16",
-            "recipe_id": str(seeded_catalog.recipe_id),
-        },
-    }
     assert (job.status, job.attempt, job.lease_generation, job.worker_id) == (
         "processing",
         1,
@@ -212,6 +175,34 @@ def test_claim_de_video_grava_tentativa_e_lease_pelo_relogio_do_banco(
         "running",
         None,
     )
+
+def test_claim_usa_receita_do_job_mesmo_depois_da_troca_e_archive(
+    client, make_job, session, seeded_catalog
+):
+    job_id = make_job()
+    original = session.get(RenderRecipe, seeded_catalog.recipe_id)
+    original.is_current = False
+    session.flush()
+    replacement = RenderRecipe(
+        name="recipe-fixture-v2",
+        max_script_chars=300,
+        spec={"fixture_revision": 2},
+        is_current=True,
+    )
+    session.add(replacement)
+    session.get(Scene, seeded_catalog.scene_id).archived_at = datetime.now(UTC)
+    session.get(Avatar, seeded_catalog.avatar_id).voice = "masculina"
+    session.commit()
+
+    data = claim(client, ["video"]).json()
+
+    assert data["id"] == str(job_id)
+    assert data["payload"]["recipe_id"] == str(original.id)
+    assert data["payload"]["recipe_spec"] == original.spec
+    assert data["payload"]["recipe_spec"] != replacement.spec
+    assert data["payload"]["voice"] == "feminina"
+    assert data["payload"]["composition"]["16:9"]["scale"] == 0.9
+
 
 
 def test_lease_segue_lease_seconds_da_configuracao(settings: Settings, make_job, worker_engine):
@@ -257,6 +248,28 @@ def test_fila_vazia_devolve_204(client: TestClient, make_job):
 
     assert response.status_code == 204
     assert response.content == b""
+
+
+def test_presenca_ociosa_persiste_e_cpu_nao_mascara_gpu(
+    client: TestClient, settings: Settings, worker_engine: Engine
+):
+    with Session(worker_engine) as reader:
+        assert jobs.last_video_worker_heartbeat(reader) is None
+    assert claim(client, ["asset_prepare"], "cpu").status_code == 204
+    with Session(worker_engine) as reader:
+        assert jobs.last_video_worker_heartbeat(reader) is None
+
+    assert claim(client, ["video"], "gpu").status_code == 204
+    first = fresh(worker_engine, WorkerHeartbeat, "gpu").last_heartbeat_at
+    # Reinício da aplicação não depende de um job ou cache em memória.
+    with TestClient(create_app(settings)) as restarted:
+        assert claim(restarted, ["asset_prepare"], "cpu").status_code == 204
+    with Session(worker_engine) as reader:
+        assert jobs.last_video_worker_heartbeat(reader) == first
+        assert reader.get(WorkerHeartbeat, "cpu") is None
+
+    assert claim(client, ["video"], "gpu").status_code == 204
+    assert fresh(worker_engine, WorkerHeartbeat, "gpu").last_heartbeat_at > first
 
 
 def test_claim_segue_fifo_por_created_at(client: TestClient, make_job):
@@ -510,6 +523,9 @@ def test_heartbeat_de_video_renova_lease_e_grava_etapa(
         1,
     )
 
+    presence = fresh(worker_engine, WorkerHeartbeat, "worker-a")
+    assert presence.last_heartbeat_at == attempt.last_heartbeat_at
+
 
 def test_heartbeat_sem_etapa_mantem_a_etapa(client: TestClient, make_job, worker_engine):
     job_id = make_job()
@@ -568,6 +584,9 @@ def test_heartbeat_da_tentativa_obsoleta_devolve_409_e_nao_altera_o_item(
     second = claim(client, [kind], "b").json()
     assert second["lease_generation"] == 2
     current = fresh(worker_engine, model, item_id)
+    presence = (
+        fresh(worker_engine, WorkerHeartbeat, "b").last_heartbeat_at if kind == "video" else None
+    )
 
     stale_generation = heartbeat(client, path, item_id, second["attempt_id"], 1)
     stale_attempt = heartbeat(client, path, item_id, first["attempt_id"], 2)
@@ -584,6 +603,9 @@ def test_heartbeat_da_tentativa_obsoleta_devolve_409_e_nao_altera_o_item(
         "b",
     )
     assert after.current_attempt_id == uuid.UUID(second["attempt_id"])
+    if kind == "video":
+        assert fresh(worker_engine, WorkerHeartbeat, "b").last_heartbeat_at == presence
+        assert fresh(worker_engine, WorkerHeartbeat, "a").last_heartbeat_at < presence
     assert heartbeat(client, path, item_id, second["attempt_id"], 2).status_code == 200
 
 

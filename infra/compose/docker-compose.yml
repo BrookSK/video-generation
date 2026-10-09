@@ -55,9 +55,11 @@ services:
       dockerfile: infra/docker/worker.Dockerfile
     restart: unless-stopped
     environment:
-      API_URL: http://api:8000
+      API_URL: ${API_URL:-http://api:8000}
       WORKER_TOKEN: ${WORKER_TOKEN:-}
-      WORKER_KINDS: ${WORKER_KINDS:-asset_prepare}
+      WORKER_KINDS: ${WORKER_KINDS:-video,asset_prepare}
+      MODELS_DIR: /models
+      WORKER_ID: ${WORKER_ID:-gpu-01}
     volumes:
       - ${MODELS_DIR:-/srv/avatar/models}:/models:ro
     depends_on:

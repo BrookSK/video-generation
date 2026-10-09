@@ -87,25 +87,29 @@ def _duration(value: Any) -> float | None:
     return float(value) if value is not None else None
 
 
+def probe_args(path: str | Path) -> list[str]:
+    return [
+        "ffprobe",
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        str(path),
+    ]
+
+
 def probe_output(path: str | Path) -> dict[str, Any]:
     """Lê com ffprobe o perfil do arquivo final: vídeo, áudio e durações."""
     completed = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-print_format",
-            "json",
-            "-show_streams",
-            "-show_format",
-            str(path),
-        ],
-        shell=False,
-        check=True,
-        capture_output=True,
-        text=True,
+        probe_args(path), shell=False, check=True, capture_output=True, text=True
     )
-    data = json.loads(completed.stdout)
+    return parse_output(json.loads(completed.stdout))
+
+
+def parse_output(data: dict[str, Any]) -> dict[str, Any]:
+    """Interpreta o mesmo perfil para piloto e inspeção cancelável do worker."""
     video = next(s for s in data["streams"] if s["codec_type"] == "video")
     audio = next(s for s in data["streams"] if s["codec_type"] == "audio")
     return {

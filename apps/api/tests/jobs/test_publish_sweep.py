@@ -428,7 +428,9 @@ def test_complete_com_lease_vencido_antes_da_varredura_devolve_409(
     assert snapshot(worker_engine, job_id) == before
 
 
-@pytest.mark.parametrize("case", ["outro_nome", "inexistente", "sem_arquivo_no_volume"])
+@pytest.mark.parametrize(
+    "case", ["outro_nome", "inexistente", "sem_arquivo_no_volume", "truncado", "hash_alterado"]
+)
 def test_complete_so_aceita_o_final_mp4_integro_da_propria_tentativa(
     client: TestClient, make_job, worker_engine: Engine, settings: Settings, case: str
 ):
@@ -440,7 +442,13 @@ def test_complete_so_aceita_o_final_mp4_integro_da_propria_tentativa(
         file_id = str(uuid.uuid4())
     else:
         file_id = upload(client, job_id, data["attempt_id"], 1).json()["id"]
-        (settings.data_dir / f"jobs/{job_id}/{data['attempt_id']}/final.mp4").unlink()
+        path = settings.data_dir / f"jobs/{job_id}/{data['attempt_id']}/final.mp4"
+        if case == "sem_arquivo_no_volume":
+            path.unlink()
+        elif case == "truncado":
+            path.write_bytes(VIDEO[:-1])
+        else:
+            path.write_bytes(b"\xff" + VIDEO[1:])
     before = snapshot(worker_engine, job_id)
 
     response = complete(client, job_id, data["attempt_id"], 1, file_id)

@@ -415,6 +415,8 @@ def check_recipe(
 
     if "pilot" not in raw:
         check.add("pilot ausente (null no rascunho)")
+    if require_frozen and raw.get("status") != "frozen":
+        check.add("congelada: status precisa ser frozen")
     if require_frozen or raw.get("status") == "frozen":
         _check_frozen(check, raw)
     return check.problems
@@ -470,6 +472,18 @@ def _build(raw: dict[str, Any]) -> Recipe:
     )
 
 
+def recipe_from_mapping(
+    raw: dict[str, Any], manifest: dict[str, Any], require_frozen: bool = False
+) -> Recipe:
+    """Valida o snapshot do job pelo mesmo schema usado pelo loader de arquivo."""
+    if not isinstance(raw, dict):
+        raise RecipeError(["a receita precisa ser um objeto JSON"])
+    problems = check_recipe(raw, manifest, require_frozen)
+    if problems:
+        raise RecipeError(problems)
+    return _build(raw)
+
+
 def load_recipe(
     recipe_path: str | Path, manifest_path: str | Path, require_frozen: bool = False
 ) -> Recipe:
@@ -486,10 +500,7 @@ def load_recipe(
     except (OSError, ValueError) as exc:
         raise RecipeError([f"não foi possível ler o manifesto {manifest_path}: {exc}"]) from exc
 
-    problems = check_recipe(raw, manifest, require_frozen)
-    if problems:
-        raise RecipeError(problems)
-    return _build(raw)
+    return recipe_from_mapping(raw, manifest, require_frozen)
 
 
 def _summary(recipe: Recipe) -> str:
