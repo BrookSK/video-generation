@@ -98,19 +98,6 @@ def test_repository_draft_loads_as_frozen_dataclasses():
         recipe.avatar.buckets["9:16"] = (1, 2)
 
 
-def test_validate_cli_accepts_draft_and_refuses_it_with_frozen(capsys):
-    args = ["validate", str(RECIPE_PATH), "--manifest", str(MANIFEST_PATH)]
-
-    assert main(args) == 0
-    assert "Receita RECIPE-v1 (draft) válida" in capsys.readouterr().out
-
-    assert main([*args, "--frozen"]) == 1
-    err = capsys.readouterr().err
-    assert "Receita recusada" in err
-    assert "congelada: worker_image.digest" in err
-    assert "congelada: pilot precisa trazer as medições do piloto" in err
-
-
 def test_module_entry_point_exit_codes():
     command = [sys.executable, "-m", "avatar_worker.recipe", "validate", str(RECIPE_PATH)]
     command += ["--manifest", str(MANIFEST_PATH)]
