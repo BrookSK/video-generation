@@ -23,6 +23,7 @@ services:
       target: supervisor-cpu
     environment:
       WORKER_TOKEN: ${WORKER_TOKEN:-dev-worker-token}
+      WORKER_KINDS: ${WORKER_KINDS:-asset_prepare}
     volumes:
       - ${MODELS_DIR:-../../models}:/models:ro
     deploy: !reset {}
