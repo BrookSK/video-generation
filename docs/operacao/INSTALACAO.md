@@ -158,6 +158,13 @@ o rascunho em receita aprovada. `recipe validate --frozen` continua recusando
 a receita sem medições e avaliação do piloto. A suíte valida essas ausências
 em fixtures isoladas, sem exigir que o JSON real omita um digest já comprovado.
 
+A validação exige buckets de ambos os formatos, inclusive quando a seção estiver
+vazia. A receita frozen exige medições `tts`, `render` e `finalize` por formato:
+o estágio `avatar` do relatório do piloto corresponde a `render` na receita.
+Não copiar apenas a finalização nem preencher tempos/VRAM não observados.
+O adaptador aceita caminhos relativos ao diretório do processo chamador e os
+resolve antes de entrar no diretório isolado do gerador (`save_audio/` permanece lá).
+
 O download dos modelos foi interrompido com
 `Error waiting for container: Canceled: grpc: the client connection is closing:
 context canceled`. Depois, o acesso SSH fornecido pelo cliente recusou conexão;
