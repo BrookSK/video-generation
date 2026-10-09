@@ -1,0 +1,20 @@
+# CPU/API: base + cpu + api + release. Instalação inicia só postgres, api e caddy.
+services:
+  api:
+    build: !reset null
+    image: ${API_IMAGE:?Informe a imagem da API com digest verificado}
+  caddy:
+    build: !reset null
+    image: ${PANEL_IMAGE:?Informe a imagem do painel com digest verificado}
+    ports: !override
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+  worker:
+    # Preparação e vídeo rodam na VPS GPU; este serviço nunca inicia neste papel.
+    profiles: [disabled-in-api-release]
+volumes:
+  caddy_data:
+  caddy_config:
