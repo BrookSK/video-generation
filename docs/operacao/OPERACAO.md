@@ -38,6 +38,8 @@ Logs e arquivos contêm dados do cliente; restrinja acesso e remova credenciais 
 - Arquivo pronto indisponível: confira volume `appdata`, backup e caminhos de tentativa; não edite o estado do job para ocultar perda de mídia.
 - Atualização: faça backup, registre commit e referências de imagem, valide release, baixe imagens aprovadas e aplique a instalação. Reverter código não reverte automaticamente uma migração; recuperação usa o conjunto banco/arquivos/versão consistente.
 
+No build de preparação P06, `npm audit` encontrou GHSA-68fv-2mgg-jv7q em `source-map-js` 1.2.1. A resolução transitiva de desenvolvimento foi atualizada para 1.2.2; não é uma dependência executada no Caddy final. Em cada nova versão, execute `npm ci`, `npm audit`, build e verificações antes de publicar imagens. Não use `npm audit fix --force` nem aprove scripts de instalação desconhecidos automaticamente. Um audit limpo não substitui revisão de segurança da aplicação ou verificação das imagens.
+
 ## Backup consistente
 
 `backup.sh` exige API e PostgreSQL em execução. Reserva um diretório novo, para a API, faz `pg_dump` custom e arquiva `/data` num container sem iniciar a aplicação. Depois reativa a API e espera sua saúde. Com a API parada não há novos jobs, mutações ou uploads; o worker não escreve diretamente no banco nem em `/data`. Planeje essa indisponibilidade e, com autorização, pause o worker antes da janela para evitar uploads interrompidos e reenfileiramento por lease vencido.
