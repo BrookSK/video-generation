@@ -73,11 +73,11 @@ describe("Histórico e resultado", () => {
   }, 8000);
 
   it("falha mantém código e refazer copia dados, exigindo escolha de asset arquivado", async () => {
-    const { api, user } = setup("/videos/video-123", { ...BASE, status: "failed", error: { code: "GPU_OOM", message: "Memória da GPU insuficiente." } });
+    const { api, user } = setup("/videos/video-123", { ...BASE, status: "failed", error: { code: "OUT_OF_MEMORY", message: "A GPU não tem memória para esta geração." } });
     api.on("GET", "/panel/avatars", () => json(200, [{ id: "new-avatar", name: "Rafael", voice: "masculina", status: "ativo" }]));
     api.on("GET", "/panel/scenes", () => json(200, [{ id: BASE.scene_id, name: "Estúdio", status: "ativo", background_color: "#fff", composition: { "9:16": { scale: .8, x: .5, y: 1 }, "16:9": { scale: .9, x: .5, y: 1 } } }]));
     api.on("GET", "/panel/generation-config", () => json(200, { max_script_chars: 600, max_audio_seconds: 40, chars_per_second: 15 }));
-    await screen.findByText("GPU_OOM");
+    await screen.findByText("OUT_OF_MEMORY");
     await user.click(screen.getByRole("link", { name: "Refazer com os mesmos dados" }));
     const field = await screen.findByRole("textbox", { name: "Texto da fala" });
     expect(field).toHaveValue(BASE.script_text);

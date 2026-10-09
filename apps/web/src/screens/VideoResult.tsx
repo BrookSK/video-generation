@@ -17,7 +17,7 @@ export function VideoResult() {
 
   return <div className="page">
     <header className="page-head"><div><Link className="back" to="/historico"><Icon name="chev" /> Histórico</Link><h1>Resultado do vídeo</h1></div>{job && <JobChip status={job.status} />}</header>
-    {notice && <p role="status" className="note">{notice}</p>}
+    {notice && job?.status === "queued" && <p role="status" className="note">{notice}</p>}
     <WorkerWarning {...presence} />
     {result.error && <div role="alert"><FieldError id="result-error" message={result.error} />{job && <p className="hint">Exibindo o último estado recebido; aguardando nova atualização.</p>}</div>}
     {!job && !result.error && <p role="status">Carregando vídeo…</p>}

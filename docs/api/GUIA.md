@@ -87,10 +87,10 @@ curl --fail-with-body -X POST "$API_URL/api/v1/jobs" \
 
 <!-- example: response GET /api/v1/jobs/{job_id} 200 -->
 ```json
-{"id":"cccccccc-0000-4000-8000-000000000001","status":"failed","status_url":"/api/v1/jobs/cccccccc-0000-4000-8000-000000000001","download_url":null,"stage":null,"aspect_ratio":"9:16","created_at":"2026-10-09T12:00:00Z","finished_at":"2026-10-09T12:05:00Z","error":{"code":"GPU_OOM","message":"Memória da GPU insuficiente."}}
+{"id":"cccccccc-0000-4000-8000-000000000001","status":"failed","status_url":"/api/v1/jobs/cccccccc-0000-4000-8000-000000000001","download_url":null,"stage":null,"aspect_ratio":"9:16","created_at":"2026-10-09T12:00:00Z","finished_at":"2026-10-09T12:05:00Z","error":{"code":"OUT_OF_MEMORY","message":"A GPU não tem memória para esta geração."}}
 ```
 
-Em `failed`, apresente `error.code` e `error.message`; não tente baixar nem crie outra intenção sem decisão do usuário. Códigos possíveis incluem `GPU_OOM`, `WORKER_LOST`, `INPUT_INVALID`, `RENDER_FAILED` e `OUTPUT_INVALID`. O operador verifica o gerador; uma fala cujo áudio ultrapassa o limite deve ser encurtada (`INPUT_INVALID`). Não substitua falha por um arquivo fictício.
+Em `failed`, apresente `error.code` e `error.message`; não tente baixar nem crie outra intenção sem decisão do usuário. Códigos possíveis incluem `OUT_OF_MEMORY`, `WORKER_LOST`, `INPUT_INVALID`, `RENDER_FAILED` e `OUTPUT_INVALID`. O operador verifica o gerador; uma fala cujo áudio ultrapassa o limite deve ser encurtada (`INPUT_INVALID`). Não substitua falha por um arquivo fictício.
 
 `GET /api/v1/worker-status` informa o último heartbeat persistido de um worker de vídeo. `null` = nenhum sinal observado; mais de 2 min = sem resposta recente. Não é uma sondagem instantânea nem prova de capacidade GPU. Falha de rede significa estado **desconhecido**, não offline.
 
