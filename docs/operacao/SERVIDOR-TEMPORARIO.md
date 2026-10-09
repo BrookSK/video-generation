@@ -2,7 +2,9 @@
 
 Esta VPS é um ambiente temporário de testes. Ela permite validar o painel, a API
 e a preparação dos avatares em CPU. Os containers devem ficar parados entre os testes.
-A geração de vídeos e o piloto da P02 exigem uma GPU NVIDIA e continuam pendentes.
+A geração de vídeos exige uma GPU NVIDIA. Após o ajuste de sequenciamento aprovado,
+o piloto e a aprovação da receita são gates da P06; P04 e P05 implementam e verificam
+o fluxo localmente, sem substituir a prova de geração real na infraestrutura do cliente.
 
 ## Instalação
 

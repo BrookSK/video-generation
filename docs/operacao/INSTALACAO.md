@@ -145,10 +145,10 @@ sudo env MODELS_DIR="$MODELS_DIR" bash infra/scripts/models-pull.sh
 Não remova o volume nem execute `docker volume prune`. O espaço exibido pertence
 ao filesystem do provedor; quota, persistência após destruir a instância e backup
 externo precisam ser confirmados com ele. O limite de 8 GB de RAM permanece:
-a geração só será considerada viável após o piloto real, sem reduzir qualidade
+a geração só será considerada viável após o piloto real na P06, sem reduzir qualidade
 ou congelar a receita para contornar falta de memória.
 
-### Estado da retomada e dependências de entrega (2026-10-08)
+### Estado da retomada e ajuste autorizado (2026-10-09, observação UTC)
 
 A preparação do host (P02/T12) foi comprovada e concluída. A imagem do worker
 foi construída e seus dois runtimes executaram cálculos CUDA. Seu digest está
@@ -157,27 +157,67 @@ registrado em `RECIPE-v1.json`, que permanece em `draft`.
 O download dos modelos foi interrompido com
 `Error waiting for container: Canceled: grpc: the client connection is closing:
 context canceled`. Depois, o acesso SSH fornecido pelo cliente recusou conexão;
-a mesma recusa foi observada em uma checagem TCP independente. Não foi possível
+a mesma recusa foi observada em checagem TCP, tanto da origem local quanto do servidor CPU. Não foi possível
 inspecionar o servidor depois da interrupção. A causa, os arquivos ainda
 persistidos e a disponibilidade da imagem após restabelecer a instância são
 desconhecidos. Não há evidência para atribuir a interrupção à RAM.
 
 O download completo, a segunda execução sem downloads e a geração de vídeos
-não foram comprovados: P02/T13 continua pendente. Quando o cliente restabelecer
-o acesso, confira o volume e a imagem, depois reexecute `models-pull.sh` com o
-`MODELS_DIR` do volume. O comando revalida os hashes dos arquivos existentes e
-baixa novamente os ausentes ou inválidos; não dispense essa conferência.
+não foram comprovados: P02/T13 continua pendente, assim como as provas de
+piloto/congelamento de T14/T15. Suas obrigações serão replanejadas na P06 após
+reaprovação do pacote; o ajuste não as declara executadas. Quando o cliente
+restabelecer o acesso GPU, confira o volume e a imagem, depois reexecute
+`models-pull.sh` com o `MODELS_DIR` do volume. O comando revalida os hashes dos
+arquivos existentes e baixa novamente os ausentes ou inválidos; não dispense
+essa conferência.
 
-Para o piloto T14/T15 falta uma imagem de pessoa, com ombros visíveis, e o
-registro de autorização de uso. A foto pública usada na P03 era uma fixture,
-não um avatar autorizado do cliente. O avaliador precisa examinar as amostras
-antes de congelar a receita. Não invente sua aprovação.
+Para as provas de piloto/congelamento na P06 falta uma imagem de pessoa, com
+ombros visíveis, e o registro de autorização de uso. A foto pública usada na
+P03 era uma fixture, não um avatar autorizado do cliente. O avaliador precisa
+examinar as amostras antes de congelar a receita. Não invente sua aprovação.
 
-P04 depende dessa receita congelada; P05 depende da geração real da P04;
-P06 depende da P05. A entrega final também exige o veredito do cliente na matriz
-de 2 avatares, 4 cenários e 2 formatos, uma pessoa para publicar manualmente no
-Instagram e uma pessoa da equipe para provar autonomia. HTTPS e a revogação dos
-acessos temporários pertencem à instalação final, não à checagem do host.
+O usuário selecionou **“Autorizar o ajuste do Astra”**, ciente do risco de
+retrabalho. A decisão autoriza desenvolvimento real local da P04/P05 antes da
+calibração GPU, não aprova amostras nem gastos. A P02 fornece `render_runtime`
+(código, schemas, adaptadores, composição, finalização e ferramentas de download
+e piloto); a P04 o consome e a P05 segue a P04. Fixtures ficam restritas aos
+testes, sem vídeo artificial apresentado como produto. `RECIPE-v1.json`
+permanece `draft`; o carregamento pela API continua exigindo `frozen`, e a
+ausência de receita vigente deve retornar erro explícito, sem receita fictícia.
+Os contratos concluídos da P01/P03 e as definições e provas da P02/T01–T12
+permanecem preservados pela reaprovação/rebind, sem edição manual de status.
+
+Na retomada, o acesso ao servidor CPU e o login/logout do painel foram
+verificados; a stack CPU foi parada em seguida. Esse acesso não restabeleceu
+o endpoint GPU e não comprova geração de vídeo, piloto ou memória disponível
+para o pipeline completo.
+
+A P06 consome `render_runtime`, calibra e congela `render_recipe` e entrega
+`installed_release`. Nessa fase final permanecem obrigatórios: pesos completos
+com hashes e segunda execução sem downloads; piloto 9:16 e 16:9 com materiais
+autorizados, medições de VRAM e tempos frio/quente, qualidade, sincronia e
+movimento além da boca; piloto isolado sem rede externa, interfaces só `lo`;
+pacote inicial autorizado de 2 avatares e 4 cenários; testes dos consumidores
+reais da P04/P05 no servidor, incluindo perfil de exportação, falhas,
+recuperação e ausência de conexões externas além da API interna.
+
+A entrega final também exige instalação reproduzível em diretório limpo,
+veredito do cliente na matriz de 2 avatares, 4 cenários e 2 formatos, amostras de
+30 s e no limite aprovado, uma pessoa para publicar manualmente no Instagram
+e uma pessoa da equipe para provar autonomia. HTTPS e a revogação dos acessos
+temporários, seguida de novo job `ready`, pertencem à instalação final,
+não à checagem do host. Antecipar o desenvolvimento local não reduz nenhum
+aceite; ajustes dos consumidores após a calibração continuam sendo um risco.
+
+Na topologia de duas VPS, API, PostgreSQL e `/data` permanecem na VPS CPU/API;
+o worker GPU e `/models` ficam na VPS GPU. A P06 verifica o acesso autorizado
+e a conexão entre ambas: o supervisor usa HTTP interno `/internal/v1` com token
+próprio, por túnel SSH ou rede privada autenticada, para claim, heartbeat e
+upload. Não exponha `/internal/v1` pelo Caddy nem o banco; o worker não recebe
+credencial de banco nem acesso direto aos volumes da API. `network_mode: none`
+e interfaces só `lo` continuam obrigatórios no piloto isolado, não no supervisor
+que precisa dessa comunicação interna. Nenhuma conexão de controle autoriza
+uso de SaaS de inferência ou gastos.
 
 ## Pesos dos modelos
 
@@ -223,6 +263,9 @@ A segunda execução completa termina com `0 baixado(s)` e código 0.
 Ela ainda relê todos os arquivos para calcular o SHA-256, então leva alguns minutos.
 
 ## Piloto
+
+O piloto e o congelamento da receita são obrigações finais da P06; as
+ferramentas implementadas na P02 não equivalem a essa execução ou ao aceite.
 
 O piloto roda com `network_mode: none`, a GPU reservada e `/models` só leitura.
 A receita e o manifesto usados são os de `/app/docs/models`, copiados para a imagem no `build`.
