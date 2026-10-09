@@ -4,16 +4,23 @@ import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } fr
 import { logout, onUnauthorized, restoreSession, type SessionUser } from "./api";
 import { Access } from "./screens/Access";
 import { Avatars } from "./screens/Avatars";
+import { History } from "./screens/History";
+import { NewVideo } from "./screens/NewVideo";
+import { VideoResult } from "./screens/VideoResult";
 import { Login } from "./screens/Login";
 import { SceneEditor } from "./screens/SceneEditor";
 import { Scenes } from "./screens/Scenes";
 import { BrandMark, BrandName, Icon, initials, type IconName } from "./ui";
 
-const HOME = "/avatares";
+const HOME = "/novo-video";
 
 type NavItem = { to: string; label: string; icon: IconName };
 
 const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+  { title: "Vídeos", items: [
+    { to: "/novo-video", label: "Novo vídeo", icon: "video" },
+    { to: "/historico", label: "Histórico", icon: "history" },
+  ] },
   {
     title: "Biblioteca",
     items: [
@@ -150,6 +157,9 @@ export function App() {
     <Routes>
       <Route path="/entrar" element={<SignIn user={user} onSignedIn={setUser} />} />
       <Route element={<RequireSession user={user} onSignOut={signOut} />}>
+        <Route path="/novo-video" element={<NewVideo />} />
+        <Route path="/historico" element={<History />} />
+        <Route path="/videos/:id" element={<VideoResult />} />
         <Route path="/avatares" element={<Avatars />} />
         <Route path="/cenarios" element={<Scenes />} />
         <Route path="/cenarios/novo" element={<SceneEditor />} />

@@ -110,4 +110,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         return JSONResponse(body, status_code=200 if ready else 503)
 
+    # Só documentação offline: não expõe /openapi.json nem altera a autenticação.
+    schema = app.openapi()
+    schema["components"]["securitySchemes"] = {
+        "ApiKeyBearer": {
+            "type": "http",
+            "scheme": "bearer",
+            "description": "Chave criada no painel.",
+        }
+    }
+    for path, operations in schema["paths"].items():
+        if path.startswith("/api/v1/"):
+            for operation in operations.values():
+                operation["security"] = [{"ApiKeyBearer": []}]
+
     return app

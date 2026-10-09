@@ -67,6 +67,7 @@ export async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  options?: { idempotencyKey?: string },
 ): Promise<T> {
   let payload: BodyInit | undefined;
   let contentType: string | undefined;
@@ -81,6 +82,9 @@ export async function request<T>(
   // Monta os cabeçalhos a cada envio para o reenvio levar o CSRF atualizado.
   const send = async (): Promise<Response> => {
     const headers: Record<string, string> = { Accept: "application/json" };
+    if (options?.idempotencyKey) {
+      headers["Idempotency-Key"] = options.idempotencyKey;
+    }
     if (contentType) {
       headers["Content-Type"] = contentType;
     }
