@@ -1,5 +1,7 @@
 // Peças visuais compartilhadas do contrato: ícones de traço (24 x 24), marca, iniciais e erro de campo.
 const PATHS = {
+  video: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m10 9 5 3-5 3z" /></>,
+  history: <><path d="M3 11a9 9 0 1 1 2.5 7M3 4v7h7M12 7v5l3 2" /></>,
   avatar: (
     <>
       <circle cx="12" cy="8" r="4" />
