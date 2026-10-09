@@ -1,5 +1,7 @@
 """Rotas do painel com cookie de sessão: login, sessão atual, pessoas, chaves e assets."""
 
+import json
+import math
 import tempfile
 import uuid
 from datetime import datetime
@@ -12,7 +14,7 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from avatar_api import assets
+from avatar_api import assets, jobs
 from avatar_api.auth import (
     MIN_PASSWORD_LENGTH,
     SESSION_COOKIE,
@@ -29,8 +31,28 @@ from avatar_api.auth import (
     start_session,
 )
 from avatar_api.errors import ApiError
+from avatar_api.job_views import (
+    IdempotencyKey,
+    JobCreatedOut,
+    JobOut,
+    WorkerStatusOut,
+    download_response,
+    job_created_out,
+    job_out,
+)
 from avatar_api.jobs import _without_nul
-from avatar_api.models import VOICES, ApiKey, Avatar, Scene, User, UserSession
+from avatar_api.models import (
+    VOICES,
+    ApiKey,
+    Avatar,
+    RenderRecipe,
+    Scene,
+    StoredFile,
+    User,
+    UserSession,
+    VideoJob,
+)
+from avatar_api.storage import resolve_path
 from avatar_api.uploads import validate_image
 
 router = APIRouter(prefix="/panel")
@@ -426,3 +448,132 @@ def scene_file(
 ) -> FileResponse:
     path, stored = assets.scene_file(db, request.app.state.settings.data_dir, scene_id, kind)
     return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
+
+
+# --- geração e histórico: equipe única da organização (AD-004) --------------------------
+
+
+class GenerationConfigOut(BaseModel):
+    max_script_chars: int | None
+    max_audio_seconds: float | None
+    chars_per_second: float | None
+
+
+@router.get("/generation-config")
+def generation_config(_: CurrentPanelSession, db: DbSession) -> GenerationConfigOut:
+    recipe = db.scalar(select(RenderRecipe).where(RenderRecipe.is_current))
+    limits = recipe.spec.get("limits", {}) if recipe else {}
+    return GenerationConfigOut(
+        max_script_chars=recipe.max_script_chars if recipe else None,
+        max_audio_seconds=limits.get("max_audio_seconds"),
+        chars_per_second=limits.get("chars_per_second"),
+    )
+
+
+@router.get("/worker-status")
+def video_worker_status(_: CurrentPanelSession, db: DbSession) -> WorkerStatusOut:
+    return WorkerStatusOut(last_heartbeat_at=jobs.last_video_worker_heartbeat(db))
+
+
+class PanelJobOut(JobOut):
+    script_text: str
+    avatar_id: uuid.UUID
+    scene_id: uuid.UUID
+    avatar_name: str
+    scene_name: str
+    voice: str
+    origin: str
+    requested_by: str
+    started_at: datetime | None
+    file_exists: bool
+    size_bytes: int | None
+    duration_seconds: float | None
+
+
+def _panel_job_out(db: Session, job: VideoJob, data_dir: Path) -> PanelJobOut:
+    avatar = db.get(Avatar, job.avatar_id)
+    scene = db.get(Scene, job.scene_id)
+    person = db.get(User, job.requested_by_user_id) if job.requested_by_user_id else None
+    key = db.get(ApiKey, job.api_key_id) if job.api_key_id else None
+    stored = db.get(StoredFile, job.result_file_id) if job.result_file_id else None
+    file_exists = (
+        job.status == "ready" and stored is not None and resolve_path(data_dir, stored).is_file()
+    )
+    duration = None
+    if file_exists:
+        manifest = db.scalar(
+            select(StoredFile).where(
+                StoredFile.attempt_id == job.current_attempt_id, StoredFile.name == "manifest.json"
+            )
+        )
+        if manifest:
+            try:
+                measured = json.loads(resolve_path(data_dir, manifest).read_text())["audio_seconds"]
+                if isinstance(measured, (int, float)) and math.isfinite(measured) and measured > 0:
+                    duration = measured
+            except (OSError, ValueError, KeyError, TypeError):
+                # Tentativas antigas sem manifesto não recebem duração fictícia.
+                pass
+    output = job_out(job, "/panel").model_dump()
+    if not file_exists:
+        output["download_url"] = None
+    return PanelJobOut(
+        **output,
+        script_text=job.script_text,
+        avatar_id=job.avatar_id,
+        scene_id=job.scene_id,
+        avatar_name=avatar.name,
+        scene_name=scene.name,
+        voice=job.voice,
+        origin=job.origin,
+        requested_by=(person.display_name or person.username) if person else key.description,
+        started_at=job.started_at,
+        file_exists=file_exists,
+        size_bytes=stored.size_bytes if file_exists else None,
+        duration_seconds=duration,
+    )
+
+
+@router.post("/jobs", status_code=202)
+def create_panel_job(
+    body: jobs.NewVideoJob,
+    identity: CurrentPanelSession,
+    db: DbSession,
+    idempotency_key: IdempotencyKey = None,
+) -> JobCreatedOut:
+    job = jobs.create_video_job(
+        db,
+        jobs.JobRequester(origin="panel", user_id=identity.user_id),
+        body,
+        idempotency_key,
+    )
+    return job_created_out(job, "/panel")
+
+
+@router.get("/jobs")
+def list_panel_jobs(_: CurrentPanelSession, db: DbSession, request: Request) -> list[PanelJobOut]:
+    return [
+        _panel_job_out(db, job, request.app.state.settings.data_dir)
+        for job in db.scalars(select(VideoJob).order_by(VideoJob.created_at.desc(), VideoJob.id))
+    ]
+
+
+def _panel_job(db: Session, job_id: uuid.UUID) -> VideoJob:
+    job = db.get(VideoJob, job_id)
+    if job is None:
+        raise ApiError(404, "NOT_FOUND", "Job não encontrado.")
+    return job
+
+
+@router.get("/jobs/{job_id}")
+def get_panel_job(
+    job_id: uuid.UUID, _: CurrentPanelSession, db: DbSession, request: Request
+) -> PanelJobOut:
+    return _panel_job_out(db, _panel_job(db, job_id), request.app.state.settings.data_dir)
+
+
+@router.get("/jobs/{job_id}/download")
+def download_panel_job(
+    job_id: uuid.UUID, _: CurrentPanelSession, db: DbSession, request: Request
+) -> FileResponse:
+    return download_response(db, _panel_job(db, job_id), request.app.state.settings.data_dir)
