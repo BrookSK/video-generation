@@ -61,7 +61,8 @@ SQL
 printf 'arquivo persistido\ncom segunda linha\n' > "$TEMP/expected.txt"
 "${COMPOSE[@]}" exec -T api sh -c 'cat > /data/backup-probe.txt' < "$TEMP/expected.txt"
 ARGS=(--env-file "$TEMP/.env" --compose-file "$TEMP/compose.yml" --project-name "$PROJECT")
-bash "$ROOT/infra/scripts/backup.sh" "${ARGS[@]}" --destination "$TEMP/snapshot"
+TEST_API_IMAGE=invalid-environment-image:must-not-run \
+  bash "$ROOT/infra/scripts/backup.sh" "${ARGS[@]}" --destination "$TEMP/snapshot"
 [ -f "$TEMP/snapshot/COMPLETE" ]
 python3 - "$TEMP/snapshot" <<'PY'
 import hashlib

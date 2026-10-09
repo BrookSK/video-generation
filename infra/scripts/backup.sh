@@ -23,6 +23,8 @@ if [ "${#FILES[@]}" -eq 0 ]; then
     FILES+=("$ROOT/infra/compose/$name")
   done
 fi
+source "$ROOT/infra/scripts/compose-env.sh"
+sanitize_compose_environment "$ROOT/infra/compose" "${FILES[@]}"
 COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$ENV_FILE")
 for file in "${FILES[@]}"; do COMPOSE+=(-f "$file"); done
 running() {

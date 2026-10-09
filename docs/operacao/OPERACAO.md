@@ -6,6 +6,8 @@ API, PostgreSQL e `/data` ficam na VPS CPU. A GPU executa o supervisor e os runt
 
 Use o clone e o `.env` privados da instalação, permissões `600`, com as referências imutáveis aprovadas. Nunca execute seed, servidor E2E ou fixtures no cliente. Não rode `down --volumes`, `volume prune` nem apague `/data` para corrigir uma falha.
 
+`install.sh` e `backup.sh` usam o arquivo informado por `--env-file` como fonte única das variáveis Compose: exports conflitantes do terminal são removidos, inclusive no container transitório de backup. Não use exports para trocar token, imagem, modo ou domínio nesses scripts; altere o ambiente privado e revalide. Os arrays Compose manuais abaixo não executam esse saneamento: use terminal sem overrides conflitantes, ou prefira os scripts para instalação/backup.
+
 Os comandos abaixo rodam na raiz do clone da VPS CPU:
 
 ```bash

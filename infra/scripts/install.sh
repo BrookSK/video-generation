@@ -19,6 +19,8 @@ case "$ROLE" in
   worker) FILES=(docker-compose.worker.yml docker-compose.worker-release.yml); SERVICES=(worker); PROJECT="${PROJECT:-avatar-gpu}" ;;
   *) echo 'Informe --role api ou --role worker.' >&2; exit 2 ;;
 esac
+source "$ROOT/infra/scripts/compose-env.sh"
+sanitize_compose_environment "$ROOT/infra/compose"
 # Nenhum pull/up/volume antes desta validação. Nunca imprimir ambiente interpolado.
 bash "$ROOT/infra/scripts/check-release.sh" --env-file "$ENV_FILE" --role "$ROLE"
 COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$ENV_FILE")
