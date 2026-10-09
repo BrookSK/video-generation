@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Annotated, BinaryIO, Literal
+from typing import Annotated, Any, BinaryIO, Literal
 
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy import func, select, update
@@ -212,6 +212,9 @@ class VideoPayload(BaseModel):
     voice: str
     aspect_ratio: str
     recipe_id: uuid.UUID
+    recipe_spec: dict[str, Any]
+    background_color: str | None
+    composition: dict[str, dict[str, float]]
 
 
 class AssetPreparePayload(BaseModel):
@@ -229,7 +232,10 @@ class Claim:
     payload: VideoPayload | AssetPreparePayload
 
 
-def _video_payload(job: VideoJob) -> VideoPayload:
+def _video_payload(session: Session, job: VideoJob) -> VideoPayload:
+    # Receitas e parâmetros de cenas não são editáveis: IDs do job preservam a versão.
+    recipe = session.get(RenderRecipe, job.recipe_id)
+    scene = session.get(Scene, job.scene_id)
     return VideoPayload(
         script_text=job.script_text,
         avatar_id=job.avatar_id,
@@ -239,6 +245,9 @@ def _video_payload(job: VideoJob) -> VideoPayload:
         voice=job.voice,
         aspect_ratio=job.aspect_ratio,
         recipe_id=job.recipe_id,
+        recipe_spec=recipe.spec,
+        background_color=scene.background_color,
+        composition=scene.composition,
     )
 
 
@@ -290,7 +299,9 @@ def claim_next(
         session.flush()
         session.refresh(item)
         payload = (
-            _video_payload(item) if isinstance(item, VideoJob) else _asset_payload(session, item)
+            _video_payload(session, item)
+            if isinstance(item, VideoJob)
+            else _asset_payload(session, item)
         )
         return Claim(
             kind=kind,
@@ -510,7 +521,13 @@ def _written_by(stored: StoredFile | None, expected_path: str, attempt_id: uuid.
 
 def _intact(data_dir: Path, stored: StoredFile) -> bool:
     path = resolve_path(data_dir, stored)
-    return path.is_file() and path.stat().st_size == stored.size_bytes
+    try:
+        if not path.is_file() or path.stat().st_size != stored.size_bytes:
+            return False
+        with path.open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest() == stored.sha256
+    except OSError:
+        return False
 
 
 def _own_result_file(
