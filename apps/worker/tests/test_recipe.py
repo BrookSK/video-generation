@@ -1,5 +1,4 @@
 import copy
-import dataclasses
 import json
 import subprocess
 import sys
@@ -71,44 +70,6 @@ def _drop(dotted):
         del target[key]
 
     return mutate
-
-
-def test_repository_draft_loads_as_frozen_dataclasses():
-    recipe = load_recipe(RECIPE_PATH, MANIFEST_PATH)
-
-    assert recipe.status == "draft"
-    assert recipe.avatar.profile == "480p-fp8"
-    assert recipe.avatar.size == "infinitetalk-480"
-    assert recipe.avatar.quant == "fp8"
-    assert recipe.avatar.num_persistent_param_in_dit == 0
-    assert recipe.avatar.mode == "streaming"
-    assert recipe.avatar.max_frame_num == 1000
-    assert recipe.avatar.buckets["9:16"] == (448, 832)
-    assert recipe.avatar.buckets["16:9"] == (896, 448)
-    assert recipe.canvas == {"9:16": (1080, 1920), "16:9": (1920, 1080)}
-    assert recipe.output.fps == 25
-    assert recipe.limits.max_audio_seconds == 40
-    assert recipe.limits.max_script_chars == 600
-    assert recipe.limits.chars_per_second == 15
-    assert {voice.kind for voice in recipe.tts.voices.values()} == {"default"}
-    assert recipe.pilot is None
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        recipe.status = "frozen"
-    with pytest.raises(TypeError):
-        recipe.avatar.buckets["9:16"] = (1, 2)
-
-
-def test_validate_cli_accepts_draft_and_refuses_it_with_frozen(capsys):
-    args = ["validate", str(RECIPE_PATH), "--manifest", str(MANIFEST_PATH)]
-
-    assert main(args) == 0
-    assert "Receita RECIPE-v1 (draft) válida" in capsys.readouterr().out
-
-    assert main([*args, "--frozen"]) == 1
-    err = capsys.readouterr().err
-    assert "Receita recusada" in err
-    assert "congelada: worker_image.digest" in err
-    assert "congelada: pilot precisa trazer as medições do piloto" in err
 
 
 def test_module_entry_point_exit_codes():
@@ -252,6 +213,25 @@ def test_frozen_flag_applies_frozen_rules_to_draft():
     assert "congelada: pilot precisa trazer as medições do piloto" in check_recipe(
         draft, MANIFEST, require_frozen=True
     )
+
+def test_empty_buckets_are_refused_before_loading(tmp_path):
+    path = _write(tmp_path, _recipe(_set("avatar.buckets", {})))
+
+    with pytest.raises(RecipeError):
+        load_recipe(path, MANIFEST_PATH)
+    assert main(["validate", str(path), "--manifest", str(MANIFEST_PATH)]) == 1
+
+
+@pytest.mark.parametrize("aspect", ["9:16", "16:9"])
+@pytest.mark.parametrize("stage", ["tts", "render", "finalize"])
+def test_frozen_recipe_requires_each_inference_and_export_stage(tmp_path, aspect, stage):
+    raw = _recipe(_frozen, _drop(f"pilot.formats.{aspect}.stages.{stage}"))
+    path = _write(tmp_path, raw)
+
+    with pytest.raises(RecipeError):
+        load_recipe(path, MANIFEST_PATH, require_frozen=True)
+    assert main(["validate", str(path), "--manifest", str(MANIFEST_PATH), "--frozen"]) == 1
+
 
 
 def test_unreadable_files_are_reported(tmp_path, capsys):

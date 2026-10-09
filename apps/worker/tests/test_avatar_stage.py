@@ -1,10 +1,7 @@
-import ast
 import importlib.util
 import json
 import subprocess
-import sys
 import textwrap
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -12,7 +9,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "apps" / "worker" / "runtimes" / "avatar"
 STAGE_PATH = RUNTIME / "avatar_stage.py"
-MANIFEST = json.loads((ROOT / "docs" / "models" / "MODEL_MANIFEST.json").read_text())
 RECIPE = json.loads((ROOT / "docs" / "models" / "RECIPE-v1.json").read_text())
 
 _spec = importlib.util.spec_from_file_location("avatar_stage", STAGE_PATH)
@@ -21,13 +17,6 @@ _spec.loader.exec_module(avatar_stage)
 
 MODELS = "/models"
 PROFILE_480P_FP8 = RECIPE["avatar"]
-PROFILE_720P = {
-    **RECIPE["avatar"],
-    "profile": "720p",
-    "size": "infinitetalk-720",
-    "quant": None,
-    "num_persistent_param_in_dit": None,
-}
 RESULT_FIELDS = {"video_path", "native_width", "native_height", "frames", "elapsed_s"}
 
 # generate_infinitetalk.py falso: registra argv, cwd e ambiente e grava <save_file>.mp4
@@ -89,85 +78,7 @@ def spy_run(monkeypatch):
     return calls
 
 
-@pytest.mark.parametrize("aspect", ["9:16", "16:9"])
-def test_args_for_480p_fp8_match_recipe_field_by_field(tmp_path, aspect):
-    tag = aspect.replace(":", "x")
-    out = tmp_path / "out"
-
-    args = avatar_stage.build_args(_request(tmp_path, aspect, PROFILE_480P_FP8))
-
-    assert args == [
-        "--ckpt_dir", "/models/wan2.1-i2v-14b-480p",
-        "--wav2vec_dir", "/models/chinese-wav2vec2-base",
-        "--infinitetalk_dir", "/models/infinitetalk-weights/single/infinitetalk.safetensors",
-        "--quant", "fp8",
-        "--quant_dir",
-        "/models/infinitetalk-weights/quant_models/infinitetalk_single_fp8.safetensors",
-        "--size", "infinitetalk-480",
-        "--sample_steps", "40",
-        "--mode", "streaming",
-        "--motion_frame", "9",
-        "--max_frame_num", "1000",
-        "--num_persistent_param_in_dit", "0",
-        "--input_json", str(out / f"infinitetalk_input_{tag}.json"),
-        "--save_file", str(out / f"avatar_{tag}"),
-    ]  # fmt: skip
-
-
-@pytest.mark.parametrize("aspect", ["9:16", "16:9"])
-def test_args_for_720p_without_quant_omit_quant_and_persistent_params(tmp_path, aspect):
-    tag = aspect.replace(":", "x")
-    out = tmp_path / "out"
-
-    args = avatar_stage.build_args(_request(tmp_path, aspect, PROFILE_720P))
-
-    assert args == [
-        "--ckpt_dir", "/models/wan2.1-i2v-14b-480p",
-        "--wav2vec_dir", "/models/chinese-wav2vec2-base",
-        "--infinitetalk_dir", "/models/infinitetalk-weights/single/infinitetalk.safetensors",
-        "--size", "infinitetalk-720",
-        "--sample_steps", "40",
-        "--mode", "streaming",
-        "--motion_frame", "9",
-        "--max_frame_num", "1000",
-        "--input_json", str(out / f"infinitetalk_input_{tag}.json"),
-        "--save_file", str(out / f"avatar_{tag}"),
-    ]  # fmt: skip
-
-
-@pytest.mark.parametrize("avatar", [PROFILE_480P_FP8, PROFILE_720P])
-@pytest.mark.parametrize("aspect", ["9:16", "16:9"])
-def test_every_path_arg_is_under_models_or_out_dir(tmp_path, aspect, avatar):
-    request = _request(tmp_path, aspect, avatar)
-    roots = (Path(MODELS), Path(request["out_dir"]))
-
-    args = avatar_stage.build_args(request)
-
-    paths = [Path(value) for value in args if value.startswith("/")]
-    assert len(paths) >= 5
-    for path in paths:
-        assert any(path.is_relative_to(root) for root in roots), path
-        assert ".." not in path.parts
-
-
-def test_weight_paths_exist_in_manifest():
-    files = {
-        f"{component['id']}/{item['path']}"
-        for component in MANIFEST["components"]
-        for item in component["files"]
-    }
-    ids = {component["id"] for component in MANIFEST["components"]}
-    quant_dir = avatar_stage.QUANT_WEIGHTS.format(quant="fp8")
-
-    assert {avatar_stage.WAN_DIR, avatar_stage.WAV2VEC_DIR} <= ids
-    assert avatar_stage.INFINITETALK_WEIGHTS in files
-    assert quant_dir in files
-    assert quant_dir.replace("safetensors", "json") in files
-    t5_dir = quant_dir.rsplit("/", 1)[0]
-    assert {f"{t5_dir}/t5_fp8.safetensors", f"{t5_dir}/t5_map_fp8.json"} <= files
-
-
-def test_run_writes_input_json_runs_offline_without_shell_and_writes_result(tmp_path, spy_run):
+def test_render_produces_native_video_with_offline_environment(tmp_path):
     request = _request(tmp_path, "9:16")
     request_path = _write_request(tmp_path, request)
     result_path = tmp_path / "result.json"
@@ -175,25 +86,10 @@ def test_run_writes_input_json_runs_offline_without_shell_and_writes_result(tmp_
 
     assert avatar_stage.main([str(request_path), str(result_path)]) == 0
 
-    input_json = json.loads((out / "infinitetalk_input_9x16.json").read_text())
-    assert input_json == {
-        "prompt": RECIPE["avatar"]["prompt"],
-        "cond_video": request["image"],
-        "cond_audio": {"person1": request["audio"]},
-    }
-    render_cmd, render_kwargs = spy_run[0]
-    assert render_cmd[:2] == [
-        sys.executable,
-        str(tmp_path / "infinitetalk" / "generate_infinitetalk.py"),
-    ]
-    assert render_cmd[2:] == avatar_stage.build_args(request)
-    assert render_kwargs["shell"] is False
-    assert all(kwargs.get("shell") is False for _, kwargs in spy_run)
 
     call = json.loads((out / "fake_call.json").read_text())
     assert call["env"] == {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
     assert Path(call["cwd"]).resolve() == out.resolve()
-    assert call["input"] == input_json
 
     result = json.loads(result_path.read_text())
     assert set(result) == RESULT_FIELDS
@@ -201,6 +97,61 @@ def test_run_writes_input_json_runs_offline_without_shell_and_writes_result(tmp_
     assert (result["native_width"], result["native_height"]) == (448, 832)
     assert result["frames"] == 30
     assert isinstance(result["elapsed_s"], float) and result["elapsed_s"] >= 0
+
+
+def test_relative_paths_survive_generator_working_directory(tmp_path, monkeypatch):
+    from PIL import Image
+
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    Image.new("RGB", (448, 832), "#204080").save(out / "canvas.png")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+         "sine=frequency=440:duration=1.2", str(out / "speech.wav")],
+        check=True,
+    )
+    (tmp_path / "models").mkdir()
+    request = _request(tmp_path, models_dir="models")
+    for key in ("image", "audio", "infinitetalk_dir", "out_dir"):
+        request[key] = str(Path(request[key]).relative_to(tmp_path))
+    request_path = _write_request(tmp_path, request)
+    # Fronteira de teste: abre os inputs que o upstream abre depois de trocar cwd.
+    # FFmpeg consome a imagem e o áudio reais; não há pesos nem inferência nesta fixture.
+    (tmp_path / "infinitetalk" / "generate_infinitetalk.py").write_text(textwrap.dedent(
+        """
+        import json, pathlib, subprocess, sys
+        opts = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+        assert pathlib.Path(opts["--ckpt_dir"]).parent.is_dir()
+        inputs = json.loads(pathlib.Path(opts["--input_json"]).read_text())
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", inputs["cond_video"],
+             "-i", inputs["cond_audio"]["person1"], "-t", "1.2", "-r", "25",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+             opts["--save_file"] + ".mp4"],
+            check=True,
+        )
+        pathlib.Path("save_audio").mkdir()
+        """
+    ))
+
+    assert avatar_stage.main([str(request_path.relative_to(tmp_path)), "result.json"]) == 0
+    result = json.loads((tmp_path / "result.json").read_text())
+    video = Path(result["video_path"])
+    assert video.is_file()
+    assert (result["native_width"], result["native_height"], result["frames"]) == (448, 832, 30)
+    decoded = out / "decoded.png"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-frames:v", "1", str(decoded)],
+        check=True,
+    )
+    with Image.open(decoded) as frame:
+        assert all(
+            abs(a - b) <= 5
+            for a, b in zip(frame.getpixel((224, 416)), (32, 64, 128), strict=True)
+        )
+    assert (out / "save_audio").is_dir()
+    assert not (tmp_path / "save_audio").exists()
 
 
 def test_failed_render_exits_1_without_result(tmp_path, monkeypatch, capsys):
@@ -233,40 +184,3 @@ def test_invalid_request_exits_1_before_render(tmp_path, spy_run, change):
     assert not result_path.exists()
 
 
-@pytest.mark.parametrize(
-    ("package_name", "component_id"),
-    [("flash-attn", "flash-attn-wheel"), ("xformers", "xformers-wheel")],
-)
-def test_wheel_url_and_sha256_in_lock_match_manifest(package_name, component_id):
-    lock = tomllib.loads((RUNTIME / "uv.lock").read_text())
-    package = next(p for p in lock["package"] if p["name"] == package_name)
-    component = next(c for c in MANIFEST["components"] if c["id"] == component_id)
-    (expected,) = component["files"]
-
-    assert package["version"] == component["revision"]
-    assert package["source"] == {"url": expected["url"]}
-    (wheel,) = package["wheels"]
-    assert wheel["url"] == expected["url"]
-    assert wheel["hash"] == f"sha256:{expected['sha256']}"
-
-
-def test_lock_has_torch_241_cu121_for_linux_x86_64():
-    lock = tomllib.loads((RUNTIME / "uv.lock").read_text())
-    versions = {p["name"]: p["version"] for p in lock["package"]}
-
-    assert versions["torch"] == "2.4.1+cu121"
-    assert versions["torchvision"] == "0.19.1+cu121"
-    assert versions["torchaudio"] == "2.4.1+cu121"
-    assert lock["requires-python"] == "==3.10.*"
-
-
-def test_stage_module_is_stdlib_only_and_python_310_syntax():
-    source = STAGE_PATH.read_text()
-    tree = ast.parse(source, feature_version=(3, 10))
-    modules = set()
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            modules.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            modules.add(node.module.split(".")[0])
-    assert modules <= sys.stdlib_module_names

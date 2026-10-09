@@ -248,7 +248,7 @@ def _check_voice(check: _Checker, name: str, voice: Any) -> None:
 
 def _check_buckets(check: _Checker, avatar: dict[str, Any]) -> None:
     buckets = check.section(avatar, "buckets", "avatar.buckets")
-    if buckets and set(buckets) != set(FORMATS):
+    if set(buckets) != set(FORMATS):
         check.add(f"avatar.buckets precisa ter exatamente os formatos {', '.join(FORMATS)}")
     for aspect in FORMATS:
         if aspect not in buckets:
@@ -304,6 +304,9 @@ def _check_measurement(check: _Checker, aspect: str, measurement: Any) -> None:
     if not isinstance(stages, dict) or not stages:
         check.add(f"{label}.stages precisa listar os estágios medidos")
     else:
+        for stage in ("tts", "render", "finalize"):
+            if stage not in stages:
+                check.add(f"{label}.stages.{stage} sem medições")
         for stage, values in stages.items():
             values = _dict(values)
             check.positive(values, "vram_peak_mb", f"{label}.stages.{stage}.vram_peak_mb", True)

@@ -136,6 +136,8 @@ def probe_video(path: Path) -> tuple[int, int, int]:
 def run(request_path: Path, result_path: Path) -> dict[str, Any]:
     started = time.monotonic()
     request = read_request(request_path)
+    # Caminhos relativos são do processo chamador, não do cwd isolado do gerador.
+    request = {**request, **{key: str(Path(request[key]).resolve()) for key in REQUEST_PATHS}}
     input_json, save_file = output_paths(request)
     input_json.parent.mkdir(parents=True, exist_ok=True)
     input_json.write_text(
