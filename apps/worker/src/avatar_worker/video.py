@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import shlex
-import subprocess
 import wave
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -21,7 +20,7 @@ from avatar_worker.canvas import (
     compose_canvas,
     extend_to_bucket,
 )
-from avatar_worker.finalize import build_finalize_args, probe_output
+from avatar_worker.finalize import build_finalize_args, parse_output, probe_args
 from avatar_worker.manifest import check_policy, load_manifest
 from avatar_worker.pilot import (
     AVATAR_FIELDS,
@@ -393,11 +392,13 @@ def generate_video(
                     work / "finalize.log",
                 )
                 try:
-                    final = probe_output(files["final.mp4"])
+                    report = work / "final-probe.json"
+                    run_process(probe_args(files["final.mp4"]), check, report)
+                    final = parse_output(json.loads(report.read_text()))
                     _validate_final(
                         final, files["final.mp4"], size, duration, recipe.limits.max_audio_seconds
                     )
-                except (subprocess.CalledProcessError, KeyError, ValueError, StopIteration) as exc:
+                except (ProcessFailure, OSError, KeyError, ValueError, StopIteration) as exc:
                     raise GenerationFailure(
                         "OUTPUT_INVALID", "O vídeo final está incompleto."
                     ) from exc

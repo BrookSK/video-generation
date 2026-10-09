@@ -16,7 +16,7 @@ import pytest
 from PIL import Image
 from test_video import video_case as video_case
 
-from avatar_worker import supervisor
+from avatar_worker import supervisor, video
 from avatar_worker.asset_prepare import PREVIEWS, PrepareInputError, prepare_avatar
 from avatar_worker.cutout import CutoutError
 from avatar_worker.supervisor import Config, Supervisor, load_config, main
@@ -550,3 +550,50 @@ def test_video_runtime_failure_does_not_leak_text_token_or_traceback(video_case,
     assert private_text not in published and TOKEN not in published
     assert "Traceback" not in published
     assert api.uploads == {} and api.completed is None
+
+
+def test_video_lease_loss_cancels_final_probe_group_before_publication(
+    video_case, tmp_path, monkeypatch
+):
+    payload, inputs, _, runtime = video_case
+    ready, lock = tmp_path / "probe-ready", tmp_path / "probe-resource.lock"
+    child = tmp_path / "probe-child.py"
+    child.write_text(
+        "import fcntl,pathlib,signal,sys\n"
+        "with open(sys.argv[1],'w') as f:\n"
+        "    fcntl.flock(f,fcntl.LOCK_EX)\n"
+        "    pathlib.Path(sys.argv[2]).touch()\n"
+        "    signal.pause()\n"
+    )
+    blocker = tmp_path / "probe-blocker.py"
+    blocker.write_text(
+        "import subprocess,sys\n"
+        f"p=subprocess.Popen([sys.executable,{str(child)!r},{str(lock)!r},{str(ready)!r}])\n"
+        "p.wait()\n"
+    )
+    run = video.run_process
+
+    def blocked_final_probe(argv, *args, **kwargs):
+        if argv[0] == "ffprobe" and argv[-1].endswith("/final.mp4"):
+            argv = [sys.executable, str(blocker)]
+        return run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(video, "run_process", blocked_final_probe)
+    api = VideoApi(payload, tmp_path)
+    api.source = inputs["avatar"].read_bytes()
+    api.render_ready = ready
+
+    _video_supervisor(api, runtime).process_next()
+
+    assert not api.uploads and api.completed is None and api.failed is None
+    assert ready.exists()
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl,sys; f=open(sys.argv[1]); fcntl.flock(f,fcntl.LOCK_EX)",
+            str(lock),
+        ],
+        check=True,
+        timeout=3,
+    )
