@@ -28,6 +28,7 @@ from PIL import Image
 
 from avatar_worker.canvas import (
     BucketFrame,
+    background_pad_color,
     bucket_frame,
     canvas_cut,
     compose_canvas,
@@ -168,14 +169,6 @@ def _network_interfaces() -> list[str] | None:
     return sorted(entry.name for entry in NET_DIR.iterdir())
 
 
-def _pad_color(background: str | Image.Image) -> str:
-    """Cor do pad: a do cenário, ou a cor média da imagem de fundo."""
-    if isinstance(background, str):
-        return background
-    mean = background.convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
-    return "#{:02x}{:02x}{:02x}".format(*mean)
-
-
 def _run_stage(
     python: Path, script: Path, request: dict[str, Any], work_dir: Path, name: str
 ) -> dict[str, Any]:
@@ -220,7 +213,7 @@ def _run_once(
     render_input_path = work_dir / "render_input.png"
     final_path = work_dir / "final.mp4"
     canvas_size = recipe.canvas[aspect]
-    pad_color = _pad_color(background)
+    pad_color = background_pad_color(background)
 
     with meter.measure(stages, "compose"):
         canvas = compose_canvas(avatar, background, args.composition[aspect], canvas_size)

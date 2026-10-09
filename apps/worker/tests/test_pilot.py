@@ -9,6 +9,7 @@ import pytest
 from PIL import Image
 
 from avatar_worker import pilot
+from avatar_worker.canvas import background_pad_color
 
 ROOT = Path(__file__).resolve().parents[3]
 RECIPE_PATH = ROOT / "docs" / "models" / "RECIPE-v1.json"
@@ -252,8 +253,8 @@ def test_composition_without_requested_format_is_rejected(env):
 
 
 def test_pad_color_is_scene_color_or_mean_of_background_image():
-    assert pilot._pad_color("#1f2937") == "#1f2937"
-    assert pilot._pad_color(Image.new("RGB", (8, 8), (10, 20, 30))) == "#0a141e"
+    assert background_pad_color("#1f2937") == "#1f2937"
+    assert background_pad_color(Image.new("RGB", (8, 8), (10, 20, 30))) == "#0a141e"
 
 
 def test_render_that_would_cut_the_canvas_fails_avatar_stage(env, monkeypatch, tmp_path):

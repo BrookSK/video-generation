@@ -10,6 +10,14 @@ from PIL import Image, ImageOps
 _HEX_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 
 
+def background_pad_color(background: str | Image.Image) -> str:
+    """Cor do pad: a do cenário, ou a cor média da imagem de fundo."""
+    if isinstance(background, str):
+        return background
+    mean = background.convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
+    return "#{:02x}{:02x}{:02x}".format(*mean)
+
+
 def _background(background: str | Image.Image, size: tuple[int, int]) -> Image.Image:
     if isinstance(background, Image.Image):
         return ImageOps.fit(background.convert("RGB"), size, Image.Resampling.LANCZOS)
