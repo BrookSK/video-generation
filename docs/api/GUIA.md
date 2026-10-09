@@ -8,7 +8,7 @@ A API e o painel podem estar disponíveis enquanto a GPU está parada. Testes lo
 
 Use a origem HTTPS da instalação, sem `/panel`, como `API_URL`. Crie uma chave em **Usuários e chaves** e guarde-a em um cofre: aparece uma única vez. Envie `Authorization: Bearer <chave>` em todas as chamadas `/api/v1`, inclusive prévias e download. Não envie chave na URL, query string, HTML, logs ou repositório. Cookie/CSRF são exclusivos do painel e não substituem Bearer.
 
-Jobs da API pertencem à chave que os criou. Outra chave recebe 404 mesmo sendo da mesma equipe. Revogar a chave ou remover o acesso de quem a criou interrompe o consumo com ela. Ausência, chave inválida e revogada retornam o mesmo 401.
+Jobs da API pertencem à chave que os criou. Outra chave recebe 404 mesmo sendo da mesma equipe. Revogar a chave interrompe o consumo com ela. Remover o acesso de uma pessoa encerra suas sessões do painel, mas não revoga as chaves emitidas: revogue-as explicitamente em **Usuários e chaves**. Ausência, chave inválida e revogada retornam o mesmo 401.
 
 ```bash
 # Configure API_URL e API_KEY no ambiente por um mecanismo seguro.

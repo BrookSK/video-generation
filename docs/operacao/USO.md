@@ -50,6 +50,6 @@ Baixe e publique manualmente no Instagram ou em outra plataforma. Não existe pu
 
 ## Integração e responsabilidades de operação
 
-Em **Usuários e chaves**, crie uma chave para cada integração; guarde o segredo mostrado uma única vez e revogue quando não for mais usado. Uma chave não lê jobs criados por outra chave. Siga [o guia da API](../api/GUIA.md) para listar assets, criar/pollar e baixar com Bearer. Não compartilhe senha do painel com integrações.
+Em **Usuários e chaves**, crie uma chave para cada integração; guarde o segredo mostrado uma única vez e revogue quando não for mais usado. Ao remover uma pessoa, revogue explicitamente as chaves emitidas por ela: remover acesso ao painel só encerra suas sessões. Uma chave não lê jobs criados por outra chave. Siga [o guia da API](../api/GUIA.md) para listar assets, criar/pollar e baixar com Bearer. Não compartilhe senha do painel com integrações.
 
 Instalação, modelos, rede privada entre API/GPU, HTTPS, backup e recuperação são responsabilidade do procedimento em [INSTALACAO.md](INSTALACAO.md). Seeds, servidor E2E e mídia sintética servem apenas a testes locais isolados: nunca rode esses controles na instalação do cliente. A entrega final exige piloto na GPU, receita congelada com medições reais e aprovação das amostras pelo cliente; testes locais não substituem esse aceite.

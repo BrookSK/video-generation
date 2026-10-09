@@ -225,3 +225,77 @@ def test_jobs_desconhecidos_retornam_404(panel):
     ident = uuid.uuid4()
     assert panel.get(f"/panel/jobs/{ident}").status_code == 404
     assert panel.get(f"/panel/jobs/{ident}/download").status_code == 404
+
+
+@pytest.mark.parametrize("origin", ["panel", "api"])
+def test_literal_text_preserved_through_detail_and_claim(panel, payload, session, settings, origin):
+    text = "  Olá! Uma fala literal.\n\n"
+    request_body = {**payload, "script_text": text}
+    headers = {"Idempotency-Key": "fala-literal"}
+    prefix = "/panel"
+    if origin == "api":
+        user = create_user(session, "literal-api", PASSWORD)
+        key = issue_api_key(session, user.id, "Contrato literal")
+        headers["Authorization"] = f"Bearer {key.key}"
+        prefix = "/api/v1"
+    created = panel.post(f"{prefix}/jobs", json=request_body, headers=headers)
+    assert created.status_code == 202
+    ident = created.json()["id"]
+    assert panel.get(f"/panel/jobs/{ident}").json()["script_text"] == text
+    claim = panel.post(
+        "/internal/v1/claim",
+        headers={"Authorization": f"Bearer {settings.worker_token}"},
+        json={"worker_id": "literal-worker", "kinds": ["video"]},
+    )
+    assert claim.status_code == 200
+    assert claim.json()["id"] == ident
+    assert claim.json()["payload"]["script_text"] == text
+
+
+@pytest.mark.parametrize("origin", ["panel", "api"])
+def test_literal_whitespace_change_conflicts_with_same_intention(panel, payload, session, origin):
+    headers = {"Idempotency-Key": "intencao-literal"}
+    prefix = "/panel"
+    if origin == "api":
+        user = create_user(session, "literal-api", PASSWORD)
+        key = issue_api_key(session, user.id, "Contrato literal")
+        headers["Authorization"] = f"Bearer {key.key}"
+        prefix = "/api/v1"
+    first_body = {**payload, "script_text": "  Fala com bordas.\n"}
+    first = panel.post(f"{prefix}/jobs", json=first_body, headers=headers)
+    assert first.status_code == 202
+    replay = panel.post(f"{prefix}/jobs", json=first_body, headers=headers)
+    assert replay.status_code == 202 and replay.json()["id"] == first.json()["id"]
+    changed = panel.post(
+        f"{prefix}/jobs",
+        json={**first_body, "script_text": first_body["script_text"].strip()},
+        headers=headers,
+    )
+    assert changed.status_code == 409
+    assert changed.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    assert len(panel.get("/panel/jobs").json()) == 1
+
+
+@pytest.mark.parametrize("origin", ["panel", "api"])
+def test_literal_limit_counts_borders_and_blank_stays_invalid(
+    panel, payload, session, seeded_catalog, origin
+):
+    recipe = session.get(RenderRecipe, seeded_catalog.recipe_id)
+    recipe.max_script_chars = 5
+    session.commit()
+    headers = {}
+    prefix = "/panel"
+    if origin == "api":
+        user = create_user(session, "literal-api", PASSWORD)
+        key = issue_api_key(session, user.id, "Contrato literal")
+        headers["Authorization"] = f"Bearer {key.key}"
+        prefix = "/api/v1"
+    blank = panel.post(f"{prefix}/jobs", json={**payload, "script_text": " \n\t "}, headers=headers)
+    assert blank.status_code == 422 and blank.json()["error"]["code"] == "SCRIPT_EMPTY"
+    too_long = panel.post(
+        f"{prefix}/jobs", json={**payload, "script_text": " Olá! "}, headers=headers
+    )
+    assert too_long.status_code == 422
+    assert too_long.json()["error"]["code"] == "SCRIPT_TOO_LONG"
+    healthy = panel.post(f"{prefix}/jobs", json={**payload, "script_text": "Olá!"}, headers=headers)
+    assert healthy.status_code == 202

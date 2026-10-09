@@ -62,9 +62,8 @@ class JobRequester:
 
 
 def request_hash(payload: NewVideoJob) -> str:
-    """SHA-256 do corpo normalizado: texto sem espaços nas pontas, formato padrão aplicado."""
+    """SHA-256 do corpo canônico: fala literal intacta, formato padrão aplicado."""
     body = payload.model_dump(mode="json")
-    body["script_text"] = payload.script_text.strip()
     canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -124,17 +123,16 @@ def _available_scene(session: Session, scene_id: uuid.UUID) -> Scene:
 
 
 def _valid_script(script_text: str, recipe: RenderRecipe) -> str:
-    script = script_text.strip()
-    if not script:
+    if not script_text.strip():
         raise ApiError(422, "SCRIPT_EMPTY", "O texto do vídeo está vazio.", "script_text")
-    if len(script) > recipe.max_script_chars:
+    if len(script_text) > recipe.max_script_chars:
         raise ApiError(
             422,
             "SCRIPT_TOO_LONG",
             f"O texto passa do limite de {recipe.max_script_chars} caracteres.",
             "script_text",
         )
-    return script
+    return script_text
 
 
 def create_video_job(

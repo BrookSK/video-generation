@@ -173,14 +173,6 @@ def test_snapshot_copia_voz_do_avatar_e_arquivo_do_cenario(
     assert job.scene_file_id == background_id
 
 
-def test_texto_com_espacos_nas_pontas_e_gravado_sem_eles_ate_o_limite(
-    client: TestClient, auth: dict[str, str], seeded_catalog: DevCatalog, other_engine: Engine
-):
-    script = "a" * RECIPE_MAX_SCRIPT_CHARS
-    response = post_job(client, auth, body(seeded_catalog, script_text=f"  {script}\n"))
-
-    assert response.status_code == 202, response.text
-    assert read_job(other_engine, response.json()["id"]).script_text == script
 
 
 # --- recusas --------------------------------------------------------------------------
@@ -355,22 +347,6 @@ def test_commit_que_falha_nao_devolve_202_nem_deixa_linha(
 # --- idempotência ---------------------------------------------------------------------
 
 
-def test_mesma_chave_e_mesmo_corpo_devolvem_o_mesmo_job(
-    client: TestClient, auth: dict[str, str], seeded_catalog: DevCatalog, session: Session
-):
-    headers = {**auth, "Idempotency-Key": "pedido-123"}
-    first = post_job(client, headers, body(seeded_catalog))
-    # Mesmo corpo normalizado: espaços nas pontas e formato padrão explícito.
-    second = post_job(
-        client, headers, body(seeded_catalog, script_text=f" {SCRIPT} ", aspect_ratio="9:16")
-    )
-
-    assert first.status_code == second.status_code == 202
-    assert first.json() == second.json()
-    assert job_count(session) == 1
-    job = session.get(VideoJob, uuid.UUID(first.json()["id"]))
-    assert job.idempotency_key == "pedido-123"
-    assert job.request_hash == jobs.request_hash(jobs.NewVideoJob(**body(seeded_catalog)))
 
 
 def test_mesma_chave_com_corpo_diferente_responde_409(
