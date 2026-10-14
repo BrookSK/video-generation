@@ -44,6 +44,7 @@ from avatar_worker.canvas import (
 )
 from avatar_worker.cutout import ensure_alpha
 from avatar_worker.finalize import build_finalize_args, probe_output, run_finalize
+from avatar_worker.manifest import check_policy, load_manifest
 from avatar_worker.recipe import (
     COMPOSITION_RANGES,
     FORMATS,
@@ -666,6 +667,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"fila recusada com {len(exc.problems)} problema(s):\n{problems}")
     if args.out.exists() and not (args.out.is_dir() and not any(args.out.iterdir())):
         parser.error(f"--out {args.out} já foi usado; escolha um diretório novo ou vazio")
+    try:
+        policy_problems = check_policy(load_manifest(args.manifest))
+    except (OSError, ValueError) as exc:
+        policy_problems = [f"não foi possível ler o manifesto {args.manifest}: {exc}"]
+    if policy_problems:
+        problems = "\n".join(f"- {problem}" for problem in policy_problems)
+        print(f"Manifesto recusado pela política comercial:\n{problems}", file=sys.stderr)
+        return 1
     try:
         recipe = load_recipe(args.recipe, args.manifest)
     except RecipeError as exc:

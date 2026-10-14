@@ -346,6 +346,24 @@ def test_stage_failure_is_readable_in_sample_report_and_queue_continues(env, mon
     ]
 
 
+def test_manifest_violating_commercial_policy_refused_before_any_stage(env, tmp_path, capsys):
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    (lora,) = [c for c in manifest["components"] if c["id"] == "lightx2v-lora"]
+    lora["commercial_use"] = False
+    tampered = tmp_path / "manifest.json"
+    tampered.write_text(json.dumps(manifest), encoding="utf-8")
+    args = _queue(env, _sample("retrato", "9:16"))
+    args[args.index("--manifest") + 1] = str(tampered)
+
+    assert pilot.main(args) == 1
+
+    err = capsys.readouterr().err
+    assert "Manifesto recusado pela política comercial" in err
+    assert "lightx2v-lora" in err
+    assert not env["out"].exists() or not any(env["out"].iterdir())
+    assert not env["log"].exists()
+
+
 def test_audio_above_limit_fails_tts_before_render(env, monkeypatch):
     monkeypatch.setenv("FAKE_TTS_SECONDS", "1.0")
 
