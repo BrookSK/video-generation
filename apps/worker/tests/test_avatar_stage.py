@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "apps" / "worker" / "runtimes" / "avatar"
 STAGE_PATH = RUNTIME / "avatar_stage.py"
+PATCH_SCRIPT = RUNTIME / "patch_infinitetalk.py"
 RECIPE = json.loads((ROOT / "docs" / "models" / "RECIPE-v1.json").read_text())
 
 _spec = importlib.util.spec_from_file_location("avatar_stage", STAGE_PATH)
@@ -81,7 +83,10 @@ def spy_run(monkeypatch):
     return calls
 
 
-def test_render_produces_native_video_with_offline_environment(tmp_path):
+def test_render_produces_native_video_with_offline_environment(tmp_path, monkeypatch):
+    # Ambiente pai em 0: o gerador ainda recebe os valores que o estágio força.
+    for name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "TORCHDYNAMO_DISABLE"):
+        monkeypatch.setenv(name, "0")
     request = _request(tmp_path, "9:16")
     request_path = _write_request(tmp_path, request)
     result_path = tmp_path / "result.json"
@@ -192,3 +197,57 @@ def test_invalid_request_exits_1_before_render(tmp_path, spy_run, change):
     assert not result_path.exists()
 
 
+# custom_init de generate_infinitetalk.py no commit 50aa0a94 do manifesto (linhas 277-281),
+# byte a byte. O Wav2Vec2FeatureExtractor recebe os mesmos argumentos do encoder.
+CUSTOM_INIT = (
+    "def custom_init(device, wav2vec):    \n"
+    "    audio_encoder = Wav2Vec2Model.from_pretrained(wav2vec, local_files_only=True).to(device)\n"
+    "    audio_encoder.feature_extractor._freeze_parameters()\n"
+    "    wav2vec_feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("
+    "wav2vec, local_files_only=True)\n"
+    "    return wav2vec_feature_extractor, audio_encoder\n"
+)
+# O mesmo trecho depois do patch: só o carregamento do encoder ganha atenção eager.
+EAGER_CUSTOM_INIT = (
+    "def custom_init(device, wav2vec):    \n"
+    "    audio_encoder = Wav2Vec2Model.from_pretrained("
+    'wav2vec, local_files_only=True, attn_implementation="eager").to(device)\n'
+    "    audio_encoder.feature_extractor._freeze_parameters()\n"
+    "    wav2vec_feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("
+    "wav2vec, local_files_only=True)\n"
+    "    return wav2vec_feature_extractor, audio_encoder\n"
+)
+
+
+def _patch_checkout(tmp_path, source):
+    """Roda o script como o Dockerfile, sobre um checkout com generate_infinitetalk.py."""
+    checkout = tmp_path / "infinitetalk"
+    checkout.mkdir()
+    (checkout / "generate_infinitetalk.py").write_text(source)
+    completed = subprocess.run(
+        [sys.executable, str(PATCH_SCRIPT), str(checkout)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed, (checkout / "generate_infinitetalk.py").read_text()
+
+
+def test_patch_loads_only_the_wav2vec2_encoder_with_eager_attention(tmp_path):
+    completed, patched = _patch_checkout(tmp_path, CUSTOM_INIT)
+
+    assert completed.returncode == 0, completed.stderr
+    assert patched == EAGER_CUSTOM_INIT
+
+
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [(EAGER_CUSTOM_INIT, 0), (CUSTOM_INIT + CUSTOM_INIT, 2)],
+    ids=["ancora-ausente", "ancora-repetida"],
+)
+def test_patch_fails_without_touching_checkout_unless_anchor_appears_once(tmp_path, source, found):
+    completed, patched = _patch_checkout(tmp_path, source)
+
+    assert completed.returncode == 1
+    assert f"encontradas {found}" in completed.stderr
+    assert patched == source

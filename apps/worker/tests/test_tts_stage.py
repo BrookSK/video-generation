@@ -193,6 +193,16 @@ def test_chatterbox_wheel_sha256_in_lock_matches_manifest():
     assert wheel["hash"] == f"sha256:{expected['sha256']}"
 
 
+def test_lock_keeps_setuptools_with_pkg_resources_for_perthnet():
+    # perth.perth_net importa pkg_resources, removido no setuptools 82; sem ele o
+    # PerthImplicitWatermarker vira None e o modelo multilíngue não constrói. O runtime só
+    # instala em linux x86_64, então a guarda local é o uv.lock que o build usa com --frozen.
+    lock = tomllib.loads((RUNTIME / "uv.lock").read_text())
+    (setuptools,) = [p for p in lock["package"] if p["name"] == "setuptools"]
+
+    assert setuptools["version"] == "80.9.0"
+
+
 def test_stage_module_imports_only_stdlib_at_top_level():
     tree = ast.parse(STAGE_PATH.read_text())
     modules = set()
