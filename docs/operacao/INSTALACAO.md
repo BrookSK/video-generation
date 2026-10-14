@@ -14,7 +14,7 @@ O servidor precisa de Ubuntu 24.04 x86_64, GPU NVIDIA e acesso `sudo`.
 
 ### Espaço em disco
 
-- Pesos dos modelos: cerca de 123 GB em `/srv/avatar/models`.
+- Pesos dos modelos: cerca de 124 GB em `/srv/avatar/models`.
 - Durante o download, o maior arquivo ocupa até 20 GB extras como `.part`.
 - Imagem `avatar-worker:pilot` e imagem CUDA base: reserve 40 GB no disco do Docker (`/var/lib/docker`).
 
@@ -151,12 +151,13 @@ ou congelar a receita para contornar falta de memória.
 ### Estado da retomada e ajuste autorizado (2026-10-09, observação UTC)
 
 A preparação do host (P02/T12) foi comprovada e concluída. A imagem do worker
-foi construída e seus dois runtimes executaram cálculos CUDA. Seu digest está
-registrado em `RECIPE-v1.json`, que permanece em `draft`.
-Digest da imagem identifica o build já observado; sua presença não transforma
-o rascunho em receita aprovada. `recipe validate --frozen` continua recusando
-a receita sem medições e avaliação do piloto. A suíte valida essas ausências
-em fixtures isoladas, sem exigir que o JSON real omita um digest já comprovado.
+foi construída e seus dois runtimes executaram cálculos CUDA. O digest desse
+build chegou a ser registrado em `RECIPE-v1.json`; na P07, `worker_image.digest`
+voltou a `null`, porque aquele build não contém as correções da P07. A P06
+publica a imagem do commit entregue na P07 e registra o novo digest. A receita
+permanece em `draft`, e um digest não transforma o rascunho em receita
+aprovada. `recipe validate --frozen` continua recusando a receita sem digest,
+medições e avaliação do piloto.
 
 A validação exige buckets de ambos os formatos, inclusive quando a seção estiver
 vazia. A receita frozen exige medições `tts`, `render` e `finalize` por formato:
@@ -229,6 +230,129 @@ credencial de banco nem acesso direto aos volumes da API. `network_mode: none`
 e interfaces só `lo` continuam obrigatórios no piloto isolado, não no supervisor
 que precisa dessa comunicação interna. Nenhuma conexão de controle autoriza
 uso de SaaS de inferência ou gastos.
+
+## GPU Verda (A100 80 GB)
+
+A partir da P07, a calibração usa uma instância da Verda (antiga DataCrunch)
+com NVIDIA A100 80 GB. O teste técnico de 2026-10-14 rodou numa A100-SXM4-80GB
+da localização FIN-01, com materiais sintéticos aceitos só para teste, e não
+aprova qualidade, tempos nem receita. O pico de VRAM do avatar nesse teste,
+de 48.776 a 50.776 MiB, passa dos 46.068 MiB da L40S descrita acima.
+
+Publicar a imagem do commit entregue na P07, medir na GPU, rodar o piloto e
+obter o aceite ficam na P06. Este guia não traz automação de nuvem: criar,
+desligar ou excluir instância e volume são ações manuais no console da Verda e
+dependem de autorização do cliente; exclusão e retomada estão descritas abaixo.
+Na instância, rode `bash infra/scripts/gpu-host-check.sh` e instale, pelos
+passos acima, só o que ele apontar como ausente.
+
+### Perfil da receita draft
+
+`docs/models/RECIPE-v1.json` continua `draft`, com o perfil
+`480p-bf16-a100-lightx2v4`:
+
+- bf16 sem quantização: `quant: null` e `num_persistent_param_in_dit: null`;
+- LoRA lightx2v (componente `lightx2v-lora`, arquivo
+  `Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors`) com escala 1.0;
+- 4 passos (`sample_steps`), guia de texto 1.0 e guia de áudio 2.0;
+- sem prompt negativo (`negative_prompt: null`): o `generate_infinitetalk.py`
+  fixado não tem esse argumento.
+
+O estágio de avatar repassa esses valores explicitamente ao gerador, sem
+depender dos defaults dele. A validação da receita e o próprio estágio recusam
+perfil quantizado (fp8 ou int8) antes de iniciar o gerador: o optimum-quanto
+compilaria uma extensão CUDA na primeira inferência, e a imagem não tem `nvcc`.
+Não instale toolchain, não amplie permissões e não troque de perfil para
+contornar a recusa. GPU com menos de 80 GB pede outro perfil, aprovado numa
+receita nova.
+
+No teste de 2026-10-14, só com execuções frias, a geração com lightx2v levou de
+99,7 a 111,9 s de computação por segundo de vídeo, quase tudo no avatar (cerca
+de 50 min de GPU para um vídeo de 30 s), com pico de 48.776 a 50.776 MiB no
+avatar. Sem a LoRA, com 40 passos, cada passo levou cerca de 71 s. Use esses
+números só para estimar custo: não são garantia, e a P06 mede de novo, frio e
+quente.
+
+### Pesos novos
+
+O manifesto ganhou `lightx2v-lora` (316.822.496 bytes) e `kokoro-82m` (cerca de
+330 MB, fontes das referências de voz). O código que baixa e confere os pesos
+roda dentro da imagem `avatar-worker:pilot`, e uma imagem anterior à P07 recusa
+o manifesto novo. Construa a imagem a partir do commit em uso e rode
+`models-pull.sh` como em *Pesos dos modelos*, abaixo: arquivos já conferidos são
+pulados e só os novos são baixados. A segunda execução precisa terminar com
+`0 baixado(s)`.
+
+### Custo: desligar não para a cobrança
+
+Na Verda, instância em **shutdown continua cobrando** o preço da GPU. O
+shutdown serve para manutenção e para anexar ou desanexar volumes, não para
+economizar ([Shutdown and Delete](https://docs.verda.com/cpu-and-gpu-instances/shutdown-hibernate-and-delete/)).
+O saldo é pré-pago e descontado em blocos de 10 minutos. Com saldo zerado, a
+Verda descontinua as instâncias e apaga os volumes, que podem ser restaurados
+por até 96 horas ([Pricing and Billing](https://docs.verda.com/welcome-to-verda/pricing-and-billing/)).
+GPU e storage são custos do cliente.
+
+O único jeito de parar o custo de compute é excluir a instância. Isso exige
+autorização pontual do cliente para aquela exclusão, registrada com quem
+autorizou, data e hora; autorização anterior ou genérica não vale. Sem ela,
+não exclua nada e avise o cliente de que a instância segue cobrando.
+
+Com a autorização:
+
+1. Espere o piloto terminar e pare o worker, se estiver rodando, com o mesmo
+   comando Compose usado para subi-lo, trocando `up -d` por `stop`.
+2. Na instância, rode `sync` para gravar no disco o que estiver em buffer.
+3. Registre o nome do volume, a localização e o fingerprint da host key da
+   instância (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`).
+4. No console da Verda, use **Delete instance** e não marque nenhum volume na
+   lista de storage (o padrão é nenhum marcado). Exclua só a instância.
+5. Confira no console que o volume ficou desanexado (detached). Ele guarda o
+   que foi gravado no disco da instância, como pesos, referências de voz,
+   imagens Docker e saídas do piloto, e **o storage continua cobrado**
+   enquanto o volume existir, mesmo sem instância.
+
+No teste de 2026-10-14, a instância foi excluída depois do `sync` e o volume
+`OS-fHuXBon4` ficou desanexado em FIN-01. Mantenha saldo para o storage enquanto
+o volume existir: com saldo zerado ele é apagado. Excluir o volume é outra
+decisão do cliente e não faz parte deste procedimento.
+
+### Retomada com o volume preservado
+
+Criar a instância de novo volta a cobrar GPU e também precisa de autorização do
+cliente.
+
+1. No console, crie uma instância A100 80 GB na mesma localização do volume e
+   selecione-o em **Add existing storage**; o volume precisa estar desanexado
+   ([Set up a CPU or GPU instance](https://docs.verda.com/cpu-and-gpu-instances/set-up-a-gpu-instance/)).
+2. **IP e host key:** anote o IP novo e atualize o SSH config do operador. No
+   primeiro acesso, compare o fingerprint oferecido com o registrado. Se mudou,
+   confirme-o por um canal confiável antes de aceitar; nunca desative a
+   verificação de host key. Depois, remova a entrada do IP antigo com
+   `ssh-keygen -R <ip antigo>`.
+3. **Disco:** confira que o volume é o disco da instância e o espaço livre:
+
+   ```bash
+   lsblk
+   df -h /srv/avatar /var/lib/docker
+   ```
+
+4. **Host e GPU:** `bash infra/scripts/gpu-host-check.sh`.
+5. **Pesos:** `MODELS_DIR=/srv/avatar/models bash infra/scripts/models-pull.sh`
+   precisa terminar com `0 baixado(s)`.
+6. **Referências de voz:** rode a conferência de *Referências de voz* com
+   `REFS_MODELS=/srv/avatar/models`.
+7. **Imagem por digest:** a referência `nome@sha256:...` publicada na P06 precisa
+   aparecer em
+
+   ```bash
+   docker image inspect --format '{{json .RepoDigests}}' avatar-worker:pilot
+   ```
+
+   Se não aparecer, puxe a imagem pela referência registrada e marque-a como
+   `avatar-worker:pilot`, com `WORKER_IMAGE` igual a essa referência:
+   `docker pull "$WORKER_IMAGE"` e `docker tag "$WORKER_IMAGE" avatar-worker:pilot`.
+   Não reconstrua a imagem para substituí-la.
 
 ## Supervisor e API em duas VPS
 
@@ -348,7 +472,8 @@ O script:
 - confere `docs/models/MODEL_MANIFEST.json` contra a política de licenças e hashes antes de baixar qualquer coisa;
 - baixa cada arquivo dos componentes `model` para `/srv/avatar/models/<id do componente>/<path>`;
 - grava primeiro em `<arquivo>.part` e só renomeia quando o SHA-256 e o tamanho batem com o manifesto;
-- com hash ou tamanho divergente, apaga o `.part`, nomeia o arquivo e sai com código 1.
+- com hash ou tamanho divergente, apaga o `.part`, nomeia o arquivo e sai com código 1;
+- não baixa componentes `derived`, como as referências de voz (veja *Referências de voz*).
 
 O manifesto é montado só leitura dentro do contêiner. Nenhum token é usado: os repositórios são públicos.
 
@@ -359,14 +484,144 @@ Arquivo ausente, incompleto ou divergente é baixado de novo.
 A segunda execução completa termina com `0 baixado(s)` e código 0.
 Ela ainda relê todos os arquivos para calcular o SHA-256, então leva alguns minutos.
 
+## Referências de voz
+
+As vozes `feminina` e `masculina` usam referências sintéticas distintas,
+geradas offline em CPU pelo Kokoro-82M pt-BR (`lang_code='p'`) com os presets
+`pf_dora` e `pm_alex`. Ninguém é gravado ou clonado. Código, pesos e presets
+são Apache-2.0, com revisões fixadas no manifesto (`kokoro-code` e
+`kokoro-82m`). O TTS de produção continua o Chatterbox; o Kokoro só prepara as
+referências.
+
+Os WAVs ficam fora do Git. O componente `kokoro-voice-references` (kind
+`derived`) do manifesto registra SHA-256, tamanho e proveniência de cada
+arquivo, e `tts.voices` da receita aponta `feminina` para `pf_dora.wav` e
+`masculina` para `pm_alex.wav`. O TTS confere o SHA-256 a cada uso e recusa
+referência ausente ou divergente.
+
+Os bytes registrados foram gerados em macOS arm64 (`parameters.platform` da
+proveniência). Gerar de novo na mesma plataforma, com o mesmo `uv.lock`,
+reproduz os mesmos bytes. Em outra plataforma os bytes podem mudar e a
+conferência falha: use a cópia registrada. Registrar WAVs novos exige atualizar
+manifesto e receita enquanto ela for `draft`; receita congelada nunca muda.
+
+### Runtime isolado
+
+A ferramenta `apps/worker/runtimes/voices/voice_references.py` roda num runtime
+próprio, com `pyproject.toml` e `uv.lock` separados do worker e dos runtimes de
+TTS e avatar: Python 3.12, torch 2.6.0 só para CPU e kokoro no commit do
+manifesto. O runtime instala em macOS arm64 e Linux x86_64. O espeak-ng, usado
+na fonetização, vem embutido na wheel `espeakng-loader` 0.2.4 fixada no lock;
+não instale pacote de sistema. O espeak-ng é GPL-3.0 e só roda nesta ferramenta
+offline: não entra na imagem do worker, no pipeline de produção nem no
+manifesto.
+
+Na máquina do operador, na raiz do clone, prepare o runtime e as fontes (estes
+dois comandos usam a rede):
+
+```bash
+uv sync --frozen --directory apps/worker/runtimes/voices
+uv run --frozen --project apps/worker python -m avatar_worker.manifest pull \
+  --policy docs/models/MODEL_MANIFEST.json --dest models --component kokoro-82m
+```
+
+O segundo comando baixa as fontes para `models/kokoro-82m/`, conferindo
+tamanho e SHA-256 de cada arquivo. O diretório `models/` fica fora do Git.
+
+### Gerar offline em CPU
+
+No macOS, a geração roda com a rede negada pelo sistema:
+
+```bash
+sandbox-exec -p '(version 1)(allow default)(deny network*)' \
+  uv run --frozen --offline --project apps/worker/runtimes/voices \
+  python apps/worker/runtimes/voices/voice_references.py \
+  --manifest docs/models/MODEL_MANIFEST.json --models models
+```
+
+`--offline` impede o uv de baixar pacotes. A ferramenta também força o Hugging
+Face offline e recusa qualquer conexão de socket. Antes de carregar o modelo,
+ela confere tamanho e SHA-256 das fontes; fonte ausente ou divergente sai com
+código 1 sem gravar nada. Em Linux x86_64, rode o mesmo comando sem a linha do
+`sandbox-exec`.
+
+No sucesso, a ferramenta grava `pf_dora.wav` e `pm_alex.wav` (PCM 16 bits,
+mono, 24 kHz) em `models/kokoro-voice-references/`, avisa
+`referências gravadas em models/kokoro-voice-references` e imprime no stdout o
+componente `derived`, com hashes e proveniência. Ela sobrescreve os WAVs dessa
+pasta: se a cópia registrada estiver ali, guarde-a antes de gerar em outra
+plataforma.
+
+### Conferir e copiar para `/models`
+
+A conferência compara cada voz da receita com o manifesto e com o arquivo. Na
+máquina do operador, use `REFS_MODELS=models`; no servidor GPU, o diretório dos
+pesos (`REFS_MODELS=/srv/avatar/models`). Rode na raiz do clone:
+
+```bash
+REFS_MODELS=models
+python3 - "$REFS_MODELS" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+models = Path(sys.argv[1])
+manifest = json.loads(Path("docs/models/MODEL_MANIFEST.json").read_text(encoding="utf-8"))
+recipe = json.loads(Path("docs/models/RECIPE-v1.json").read_text(encoding="utf-8"))
+registered = {
+    f"{component['id']}/{entry['path']}": entry
+    for component in manifest["components"]
+    if component["kind"] == "derived"
+    for entry in component["files"]
+}
+failed = False
+for name, voice in recipe["tts"]["voices"].items():
+    entry = registered.get(voice["path"])
+    path = models / voice["path"]
+    data = path.read_bytes() if path.is_file() else b""
+    ok = (
+        entry is not None
+        and entry["sha256"] == voice["sha256"]
+        and len(data) == entry["size"]
+        and hashlib.sha256(data).hexdigest() == voice["sha256"]
+    )
+    print(f"{name}: {path} {'ok' if ok else 'AUSENTE OU DIVERGENTE'}")
+    failed = failed or not ok
+sys.exit(1 if failed else 0)
+PY
+```
+
+A saída esperada é `feminina: models/kokoro-voice-references/pf_dora.wav ok` e
+`masculina: models/kokoro-voice-references/pm_alex.wav ok`, com código 0.
+
+Copie os dois arquivos conferidos para o servidor GPU. O alias `avatar-gpu`
+pertence ao SSH config do operador, com host key conferida:
+
+```bash
+ssh avatar-gpu 'mkdir -p /srv/avatar/models/kokoro-voice-references'
+scp models/kokoro-voice-references/pf_dora.wav models/kokoro-voice-references/pm_alex.wav \
+  avatar-gpu:/srv/avatar/models/kokoro-voice-references/
+```
+
+No servidor, na raiz do clone, repita a conferência com
+`REFS_MODELS=/srv/avatar/models`. O piloto e o worker montam esse diretório em
+`/models` só leitura.
+
 ## Piloto
 
 O piloto e o congelamento da receita são obrigações finais da P06; as
-ferramentas implementadas na P02 não equivalem a essa execução ou ao aceite.
+ferramentas implementadas na P02 e na P07 não equivalem a essa execução ou ao
+aceite.
 
 O piloto roda com `network_mode: none`, a GPU reservada e `/models` só leitura.
 A receita e o manifesto usados são os de `/app/docs/models`, copiados para a imagem no `build`.
 Depois de alterar `docs/models`, construa a imagem de novo.
+
+O piloto recebe uma fila de amostras de calibração em JSON. Cada amostra combina
+avatar, fundo, fala, voz e formato; uma amostra sozinha é uma fila de um item.
+A receita `draft` é aceita: o piloto mede e grava relatórios, não avalia
+qualidade nem congela a receita.
 
 ### Diretório do piloto
 
@@ -374,15 +629,68 @@ O contêiner roda como o usuário `app` (uid 10001). `PILOT_DIR` precisa ser gra
 
 ```bash
 sudo mkdir -p /srv/avatar/pilot/in /srv/avatar/pilot/out
-sudo cp avatar.png fala-30s.txt /srv/avatar/pilot/in/
+sudo cp fila.json avatar-a.png avatar-b.png cenario.png fala-30s.txt /srv/avatar/pilot/in/
 sudo chown -R 10001:10001 /srv/avatar/pilot
 ```
 
-`avatar.png` é a imagem autorizada pelo cliente. `fala-30s.txt` é a fala em UTF-8.
+As imagens dos avatares e dos cenários precisam ser autorizadas pelo cliente;
+materiais sintéticos valem só para teste. Avatar sem transparência passa pelo
+recorte BiRefNet antes da composição. As falas ficam em arquivos UTF-8.
 
-### Execução
+### Fila de calibração
 
-Passe o digest da imagem em `WORKER_IMAGE_DIGEST` para que o relatório do piloto o registre:
+Exemplo de `/srv/avatar/pilot/in/fila.json`:
+
+```json
+{
+  "samples": [
+    {
+      "id": "a-9x16",
+      "image": "avatar-a.png",
+      "background": "#1f2937",
+      "text_file": "fala-30s.txt",
+      "voice": "feminina",
+      "format": "9:16"
+    },
+    {
+      "id": "a-16x9",
+      "image": "avatar-a.png",
+      "background": "cenario.png",
+      "text_file": "fala-30s.txt",
+      "voice": "feminina",
+      "format": "16:9"
+    },
+    {
+      "id": "b-16x9-fechado",
+      "image": "avatar-b.png",
+      "background": "#1f2937",
+      "text": "Olá! Ligue para 0800 721 4400 até 15 de março de 2027.",
+      "voice": "masculina",
+      "format": "16:9",
+      "composition": {"scale": 1.1, "x": 0.5, "y": 1.2}
+    }
+  ]
+}
+```
+
+Campos de cada amostra:
+
+- `id`: único na fila, com letras, dígitos, `-` e `_`, começando por letra ou
+  dígito; vira a pasta da amostra;
+- `image`: imagem do avatar; `background`: cor `#RRGGBB` ou imagem do cenário;
+- `text` (fala no próprio JSON) ou `text_file` (arquivo UTF-8), só um dos dois.
+  A fala é literal: nada é removido nem normalizado, nem a quebra de linha
+  final do arquivo;
+- `voice`: `feminina` ou `masculina`; `format`: `9:16` ou `16:9`;
+- `composition` (opcional): `{scale, x, y}` nas mesmas faixas dos cenários
+  (`scale` de 0,3 a 1,2, `x` de 0 a 1, `y` de 0,5 a 1,2). Sem ela, vale o
+  enquadramento de `calibration.composition` da receita para o formato.
+
+Caminhos relativos partem da pasta do `fila.json`. O piloto confere a fila
+inteira antes de executar: com qualquer problema, lista todos e sai com código 2
+sem rodar nenhuma amostra.
+
+Passe o digest da imagem em `WORKER_IMAGE_DIGEST` para que os relatórios o registrem:
 
 ```bash
 export MODELS_DIR=/srv/avatar/models
@@ -393,18 +701,186 @@ docker compose -f infra/compose/docker-compose.pilot.yml run --rm \
   --recipe /app/docs/models/RECIPE-v1.json \
   --manifest /app/docs/models/MODEL_MANIFEST.json \
   --models /models \
-  --image /pilot/in/avatar.png \
-  --background '#1f2937' \
-  --composition '{"9:16": {"scale": 0.8, "x": 0.5, "y": 1.0}, "16:9": {"scale": 0.9, "x": 0.5, "y": 1.0}}' \
-  --text-file /pilot/in/fala-30s.txt \
-  --voice feminina \
+  --queue /pilot/in/fila.json \
   --runs 2 \
-  --out /pilot/out/fala-30s
+  --out /pilot/out/calibracao-01
 ```
 
-Sem `--formats`, o piloto gera 9:16 e 16:9. Com `--runs 2`, a primeira execução é fria e a segunda quente.
-Os vídeos e o `report.json` ficam em `/srv/avatar/pilot/out/fala-30s`.
-O relatório traz tempo e pico de VRAM por etapa e as interfaces de rede vistas no contêiner, que devem ser só `lo`.
+O serviço `pilot` não tem rede (`network_mode: none`). `--out` precisa ser uma
+pasta nova ou vazia; pasta já usada é recusada com código 2. Com `--runs 2`,
+cada amostra roda duas vezes: a primeira é marcada fria e a segunda quente.
+Pelos números do teste de 2026-10-14 (cerca de 100 s de GPU por segundo de
+fala), cada execução com 30 s de fala ocupa a A100 por cerca de 50 min: some as
+execuções da fila antes de rodar.
+
+As amostras rodam na ordem da fila. Em `/srv/avatar/pilot/out/calibracao-01`:
+
+- `index.json`: a fila na ordem declarada, com o status de cada amostra (`ok`
+  ou `failed`), o SHA-256 da fila e da receita e os comandos de TTS, avatar e
+  VRAM usados;
+- `<id>/report.json`: o relatório da amostra, com tempo e pico de VRAM por
+  etapa, a composição usada e sua origem (`sample` ou `recipe`), SHA-256 e
+  número de caracteres da fala (não o texto) e as interfaces de rede vistas
+  no contêiner, que devem ser só `lo`;
+- `<id>/run-N/final.mp4`: o vídeo de cada execução.
+
+Se uma etapa falha, o erro fica em `error` no relatório da amostra, sem
+`final.mp4`; a fila segue para a próxima amostra e o comando sai com código 1.
+Os relatórios não avaliam qualidade nem congelam a receita.
+
+## Ensaio local sem GPU
+
+Antes de usar a GPU, o operador pode exercitar na própria máquina, em CPU, as
+referências de voz (seção *Referências de voz*), a fila de calibração e o guard
+de release. A fila do ensaio usa dublês identificados no lugar do TTS, do
+render e da leitura de VRAM: eles não geram voz nem animação e não medem GPU,
+então o ensaio não vale como piloto. Composição, FFmpeg e ffprobe são reais.
+Nunca rode o ensaio no servidor do cliente.
+
+Requer `uv`, `python3`, `ffmpeg`, `ffprobe` e Docker Compose na máquina. Rode na
+raiz do clone.
+
+### Fila com dublês
+
+Entradas do ensaio, com um avatar de fundo transparente, um cenário e uma
+imagem quebrada de propósito:
+
+```bash
+ENSAIO="$(mktemp -d)"
+mkdir -p "$ENSAIO/in"
+uv run --frozen --project apps/worker python - "$ENSAIO/in" <<'PY'
+import sys
+from pathlib import Path
+
+from PIL import Image
+
+inputs = Path(sys.argv[1])
+avatar = Image.new("RGBA", (400, 800), (0, 0, 0, 0))
+avatar.paste((200, 150, 120, 255), (100, 100, 300, 800))
+avatar.save(inputs / "avatar.png")
+Image.new("RGB", (640, 360), (40, 90, 120)).save(inputs / "cenario.png")
+(inputs / "avatar-quebrado.png").write_text("não é imagem\n", encoding="utf-8")
+(inputs / "fala.txt").write_text("Terceira amostra do ensaio, lida do arquivo.\n", encoding="utf-8")
+PY
+cat > "$ENSAIO/in/fila.json" <<'JSON'
+{
+  "samples": [
+    {"id": "retrato", "image": "avatar.png", "background": "#1f2937",
+     "text": "Primeira amostra do ensaio local.", "voice": "feminina", "format": "9:16",
+     "composition": {"scale": 0.6, "x": 0.4, "y": 0.9}},
+    {"id": "quebrada", "image": "avatar-quebrado.png", "background": "#1f2937",
+     "text": "Esta amostra falha no recorte.", "voice": "feminina", "format": "9:16"},
+    {"id": "paisagem", "image": "avatar.png", "background": "cenario.png",
+     "text_file": "fala.txt", "voice": "masculina", "format": "16:9"}
+  ]
+}
+JSON
+```
+
+Dublês, só para o ensaio. O de TTS grava 2 s de silêncio e o de render repete a
+imagem recebida no tamanho do bucket; nenhum dos dois informa VRAM nem marca
+d'água:
+
+```bash
+cat > "$ENSAIO/duble-tts" <<'PY'
+#!/usr/bin/env python3
+# DUBLÊ DE ENSAIO: não sintetiza voz; grava 2 s de silêncio a 24 kHz.
+import json, sys, wave
+request = json.load(open(sys.argv[2], encoding="utf-8"))
+with wave.open(request["out_wav"], "wb") as out:
+    out.setnchannels(1)
+    out.setsampwidth(2)
+    out.setframerate(24000)
+    out.writeframes(b"\0\0" * 48000)
+result = {"audio_path": request["out_wav"], "duration_s": 2.0, "sample_rate": 24000,
+          "peak_vram_mb": None, "watermark_detected": None}
+json.dump(result, open(sys.argv[3], "w"))
+PY
+cat > "$ENSAIO/duble-render" <<'PY'
+#!/usr/bin/env python3
+# DUBLÊ DE ENSAIO: não anima; repete a imagem recebida no tamanho do bucket.
+import json, subprocess, sys, wave
+request = json.load(open(sys.argv[2], encoding="utf-8"))
+with wave.open(request["audio"]) as audio:
+    seconds = audio.getnframes() / audio.getframerate()
+width, height = {"9:16": (448, 832), "16:9": (896, 448)}[request["format"]]
+video = request["out_dir"] + "/render.mp4"
+subprocess.run(["ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", request["image"],
+                "-vf", f"scale={width}:{height}", "-t", str(seconds), "-r", "25",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", video], check=True)
+result = {"video_path": video, "native_width": width, "native_height": height,
+          "frames": round(seconds * 25)}
+json.dump(result, open(sys.argv[3], "w"))
+PY
+chmod +x "$ENSAIO/duble-tts" "$ENSAIO/duble-render"
+```
+
+Rode a fila com o CLI real do piloto. `--vram-command true` não lê VRAM, então
+os picos ficam `null`:
+
+```bash
+uv run --frozen --project apps/worker python -m avatar_worker.pilot \
+  --recipe docs/models/RECIPE-v1.json \
+  --manifest docs/models/MODEL_MANIFEST.json \
+  --models "$ENSAIO/models" \
+  --queue "$ENSAIO/in/fila.json" \
+  --out "$ENSAIO/out" \
+  --tts-python "$ENSAIO/duble-tts" \
+  --avatar-python "$ENSAIO/duble-render" \
+  --vram-command true
+echo "código $?"
+```
+
+O comando termina com `código 1`, porque a amostra `quebrada` falha no
+recorte, e as outras duas seguem. Confira:
+
+```bash
+python3 -m json.tool "$ENSAIO/out/index.json"
+python3 -m json.tool "$ENSAIO/out/quebrada/report.json"
+for video in "$ENSAIO"/out/*/run-1/final.mp4; do
+  echo "$video"
+  ffprobe -v error -show_entries stream=codec_name,width,height,sample_rate -of compact "$video"
+done
+```
+
+- `index.json` lista `retrato` (`ok`), `quebrada` (`failed`) e `paisagem` (`ok`),
+  nessa ordem, e `commands` mostra os dublês e o `true` no lugar do TTS, do
+  render e da VRAM;
+- `quebrada/report.json` traz `error.stage` `cutout` e a mensagem do erro, e
+  não há `final.mp4` dessa amostra;
+- os dois `final.mp4` são H.264 1080×1920 (`retrato`) e 1920×1080 (`paisagem`),
+  com AAC 48 kHz.
+
+Ao terminar, apague a pasta do ensaio com `rm -rf "$ENSAIO"`.
+
+### Guard de release com ambiente de teste
+
+O guard roda com um ambiente temporário de valores fictícios, identificados como
+teste. Nunca use esses valores numa instalação:
+
+```bash
+TESTE="$(mktemp -d)"
+FAKE="sha256:$(printf '%064d' 0)"
+cat > "$TESTE/release.env" <<EOF
+# Ambiente de TESTE do ensaio local: valores fictícios, nunca use em release.
+POSTGRES_PASSWORD=ensaio-local-postgres-password-0123456789
+WORKER_TOKEN=ensaio-local-worker-token-0123456789abcdef
+APP_ENV=production
+SITE_ADDRESS=ensaio.example.test
+API_IMAGE=fixture-api@$FAKE
+PANEL_IMAGE=fixture-panel@$FAKE
+WORKER_IMAGE=fixture-worker@$FAKE
+MODELS_DIR=/srv/avatar/models
+EOF
+chmod 600 "$TESTE/release.env"
+bash infra/scripts/check-release.sh --env-file "$TESTE/release.env"
+echo "código $?"
+rm -rf "$TESTE"
+```
+
+O guard imprime `Release api: ...` e `Release worker: ...` com "Compose e
+referências imutáveis válidos", avisa que é só validação de configuração e
+termina com `código 0`. Ele não baixa nem executa as imagens fictícias.
 
 ## Release imutável e instalação por papel
 
@@ -446,7 +922,7 @@ docker image inspect "$REGISTRY/avatar-api:$RELEASE" --format '{{json .RepoDiges
 docker image inspect "$REGISTRY/avatar-panel:$RELEASE" --format '{{json .RepoDigests}}'
 ```
 
-Na GPU, construa e publique a imagem do worker **depois** de congelar a receita aprovada:
+Na GPU, construa e publique a imagem do worker a partir do commit entregue na P07, **antes** do piloto: o piloto roda essa imagem pelo digest e a receita congelada registra o mesmo digest. Reconstruir depois gera outro digest, que não é o medido no piloto.
 
 ```bash
 docker build -f infra/docker/worker.Dockerfile -t "$REGISTRY/avatar-worker:$RELEASE" .
