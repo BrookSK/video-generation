@@ -1,3 +1,5 @@
+import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -17,8 +19,9 @@ _spec = importlib.util.spec_from_file_location("avatar_stage", STAGE_PATH)
 avatar_stage = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(avatar_stage)
 
-MODELS = "/models"
-PROFILE_480P_FP8 = RECIPE["avatar"]
+DRAFT_AVATAR = RECIPE["avatar"]
+LORA = DRAFT_AVATAR["lora"]
+LORA_BYTES = b"lora sintetica de teste"
 RESULT_FIELDS = {"video_path", "native_width", "native_height", "frames", "elapsed_s"}
 
 # generate_infinitetalk.py falso: registra argv, cwd e ambiente e grava <save_file>.mp4
@@ -49,12 +52,18 @@ FAKE_GENERATE = textwrap.dedent(
 )
 
 
-def _request(tmp_path, aspect="9:16", avatar=PROFILE_480P_FP8, models_dir=MODELS):
+def _request(tmp_path, aspect="9:16", models_dir=None):
+    """Pedido com o avatar do draft; a LoRA é um arquivo sintético com o sha256 do pedido."""
+    lora_file = tmp_path / "models" / LORA["component"] / LORA["file"]
+    lora_file.parent.mkdir(parents=True, exist_ok=True)
+    lora_file.write_bytes(LORA_BYTES)
+    avatar = copy.deepcopy(DRAFT_AVATAR)
+    avatar["lora"]["sha256"] = hashlib.sha256(LORA_BYTES).hexdigest()
     return {
         "image": str(tmp_path / "out" / "canvas.png"),
         "audio": str(tmp_path / "out" / "speech.wav"),
         "format": aspect,
-        "models_dir": models_dir,
+        "models_dir": str(tmp_path / "models") if models_dir is None else models_dir,
         "infinitetalk_dir": str(tmp_path / "infinitetalk"),
         "out_dir": str(tmp_path / "out"),
         "recipe_avatar": avatar,
@@ -124,7 +133,7 @@ def test_relative_paths_survive_generator_working_directory(tmp_path, monkeypatc
          "sine=frequency=440:duration=1.2", str(out / "speech.wav")],
         check=True,
     )
-    (tmp_path / "models").mkdir()
+    # Os pesos vêm de models/ relativo ao cwd; _request grava a LoRA sintética lá.
     request = _request(tmp_path, models_dir="models")
     for key in ("image", "audio", "infinitetalk_dir", "out_dir"):
         request[key] = str(Path(request[key]).relative_to(tmp_path))
@@ -178,23 +187,69 @@ def test_failed_render_exits_1_without_result(tmp_path, monkeypatch, capsys):
     assert "saiu com código 3" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("lora", [True, False], ids=["draft-com-lora", "perfil-declarado-sem-lora"])
+def test_generator_receives_recipe_lora_steps_and_guides_explicitly(tmp_path, lora):
+    request = _request(tmp_path)
+    if not lora:
+        request["recipe_avatar"]["lora"] = None
+    request_path = _write_request(tmp_path, request)
+
+    assert avatar_stage.main([str(request_path), str(tmp_path / "result.json")]) == 0
+
+    argv = json.loads((tmp_path / "out" / "fake_call.json").read_text())["argv"]
+    opts = dict(zip(argv[::2], argv[1::2], strict=True))
+    # Os defaults do CLI fixado (40 passos, guias 5.0/4.0, LoRA 1.2) nunca valem.
+    assert opts["--sample_steps"] == str(DRAFT_AVATAR["sample_steps"])
+    assert opts["--sample_text_guide_scale"] == str(DRAFT_AVATAR["sample_text_guide_scale"])
+    assert opts["--sample_audio_guide_scale"] == str(DRAFT_AVATAR["sample_audio_guide_scale"])
+    assert "--quant" not in opts
+    if lora:
+        lora_file = tmp_path / "models" / LORA["component"] / LORA["file"]
+        assert opts["--lora_dir"] == str(lora_file.resolve())
+        assert opts["--lora_scale"] == str(LORA["scale"])
+    else:
+        assert "--lora_dir" not in opts
+        assert "--lora_scale" not in opts
+
+
+def _avatar(**changes):
+    return lambda request: request["recipe_avatar"].update(changes)
+
+
+def _lora(**changes):
+    return lambda request: request["recipe_avatar"]["lora"].update(changes)
+
+
 @pytest.mark.parametrize(
-    "change",
+    ("mutate", "expected"),
     [
-        {"format": "4:3"},
-        {"models_dir": ""},
-        {"recipe_avatar": {**PROFILE_480P_FP8, "size": None}},
-        {"recipe_avatar": None},
+        (lambda request: request.update(format="4:3"), "request.format"),
+        (lambda request: request.update(models_dir=""), "request.models_dir"),
+        (_avatar(size=None), "request.recipe_avatar sem size"),
+        (lambda request: request.update(recipe_avatar=None), "recipe_avatar precisa ser um objeto"),
+        (_avatar(quant="fp8"), "extensão CUDA do optimum-quanto na primeira inferência e a imagem"),
+        (_avatar(negative_prompt="mãos, gestos"), "generate_infinitetalk.py fixado (50aa0a94)"),
+        (_avatar(sample_steps=0), "sample_steps precisa ser inteiro positivo"),
+        (_avatar(sample_text_guide_scale=float("inf")), "sample_text_guide_scale precisa ser"),
+        (_avatar(sample_audio_guide_scale=0), "sample_audio_guide_scale precisa ser"),
+        (lambda request: request["recipe_avatar"].pop("lora"), "recipe_avatar sem lora"),
+        (_lora(scale=-1.0), "lora.scale precisa ser número finito e positivo"),
+        (_lora(file="../../fora.safetensors"), "recipe_avatar.lora fora de models_dir"),
+        (_lora(file="ausente.safetensors"), "LoRA ausente"),
+        (_lora(sha256="0" * 64), "sha256 da LoRA"),
     ],
 )
-def test_invalid_request_exits_1_before_render(tmp_path, spy_run, change):
-    request_path = _write_request(tmp_path, {**_request(tmp_path), **change})
+def test_invalid_request_exits_1_before_render(tmp_path, spy_run, capsys, mutate, expected):
+    request = _request(tmp_path)
+    mutate(request)
+    request_path = _write_request(tmp_path, request)
     result_path = tmp_path / "result.json"
 
     assert avatar_stage.main([str(request_path), str(result_path)]) == 1
 
     assert spy_run == []
     assert not result_path.exists()
+    assert expected in capsys.readouterr().err
 
 
 # custom_init de generate_infinitetalk.py no commit 50aa0a94 do manifesto (linhas 277-281),

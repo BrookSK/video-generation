@@ -6,12 +6,14 @@ Roda com o Python 3.10 do runtime isolado. O topo só importa a biblioteca padr�
 e o InfiniteTalk rodam no subprocesso de generate_infinitetalk.py.
 """
 
+import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 FORMATS = ("9:16", "16:9")
@@ -21,13 +23,13 @@ OFFLINE_ENV = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
 SUBPROCESS_ENV = {**{name: "1" for name in OFFLINE_ENV}, "TORCHDYNAMO_DISABLE": "1"}
 REQUEST_PATHS = ("image", "audio", "models_dir", "infinitetalk_dir", "out_dir")
 RECIPE_FIELDS = ("size", "sample_steps", "mode", "motion_frame", "max_frame_num", "prompt")
+# Sempre explícitas: os defaults do CLI (texto 5.0, áudio 4.0) não são os da receita.
+GUIDE_FIELDS = ("sample_text_guide_scale", "sample_audio_guide_scale")
 
 # Pesos em /models/<componente>/<arquivo do manifesto>.
 WAN_DIR = "wan2.1-i2v-14b-480p"
 WAV2VEC_DIR = "chinese-wav2vec2-base"
 INFINITETALK_WEIGHTS = "infinitetalk-weights/single/infinitetalk.safetensors"
-# O InfiniteTalk lê t5_<quant>.safetensors e o mapa .json no mesmo diretório deste arquivo.
-QUANT_WEIGHTS = "infinitetalk-weights/quant_models/infinitetalk_single_{quant}.safetensors"
 
 
 class StageError(Exception):
@@ -53,7 +55,83 @@ def read_request(path: Path) -> dict[str, Any]:
     missing = [key for key in RECIPE_FIELDS if avatar.get(key) is None]
     if missing:
         raise StageError(f"request.recipe_avatar sem {', '.join(missing)}")
+    check_profile(avatar)
     return request
+
+
+def _finite_positive(value: Any) -> bool:
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
+def check_profile(avatar: dict[str, Any]) -> None:
+    """Recusa o perfil que a imagem não roda ou que o CLI fixado ignoraria, sem trocar de perfil."""
+    if avatar.get("quant") is not None:
+        raise StageError(
+            f"quant {avatar['quant']!r} não roda nesta imagem: a quantização compila a extensão "
+            "CUDA do optimum-quanto na primeira inferência e a imagem não tem nvcc; use quant null"
+        )
+    negative = avatar.get("negative_prompt")
+    if negative is not None and (not isinstance(negative, str) or negative.strip()):
+        raise StageError(
+            "negative_prompt não é aceito: o generate_infinitetalk.py fixado (50aa0a94) não tem "
+            "esse argumento"
+        )
+    steps = avatar["sample_steps"]
+    if isinstance(steps, bool) or not isinstance(steps, int) or steps <= 0:
+        raise StageError(f"sample_steps precisa ser inteiro positivo (recebido {steps!r})")
+    for key in GUIDE_FIELDS:
+        if not _finite_positive(avatar.get(key)):
+            raise StageError(f"{key} precisa ser número finito e positivo ({avatar.get(key)!r})")
+    if "lora" not in avatar:
+        raise StageError("request.recipe_avatar sem lora (null para perfil sem LoRA)")
+    lora = avatar["lora"]
+    if lora is None:
+        return
+    if not isinstance(lora, dict) or not all(
+        isinstance(lora.get(key), str) and lora[key] for key in ("component", "file", "sha256")
+    ):
+        raise StageError("recipe_avatar.lora precisa de component, file e sha256")
+    relative = PurePosixPath(lora["component"], lora["file"])
+    if relative.is_absolute() or ".." in relative.parts:
+        raise StageError(f"recipe_avatar.lora fora de models_dir: {relative}")
+    if not _finite_positive(lora.get("scale")):
+        raise StageError(f"lora.scale precisa ser número finito e positivo ({lora.get('scale')!r})")
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def lora_path(request: dict[str, Any]) -> Path | None:
+    """LoRA em models_dir/<componente>/<arquivo>, ou None no perfil declarado sem LoRA."""
+    lora = request["recipe_avatar"]["lora"]
+    if lora is None:
+        return None
+    return Path(request["models_dir"]) / lora["component"] / lora["file"]
+
+
+def verify_lora(request: dict[str, Any]) -> None:
+    """Confere arquivo e sha256 da LoRA antes do gerador; nunca roda sem ela."""
+    path = lora_path(request)
+    if path is None:
+        return
+    if not path.is_file():
+        raise StageError(f"LoRA ausente: {path}")
+    expected = request["recipe_avatar"]["lora"]["sha256"].lower()
+    actual = sha256_file(path)
+    if actual != expected:
+        raise StageError(
+            f"sha256 da LoRA {path.name} diverge: esperado {expected}, obtido {actual}"
+        )
 
 
 def output_paths(request: dict[str, Any]) -> tuple[Path, Path]:
@@ -84,19 +162,15 @@ def build_args(request: dict[str, Any]) -> list[str]:
         "--infinitetalk_dir",
         str(models_dir / INFINITETALK_WEIGHTS),
     ]
-    quant = avatar.get("quant")
-    if quant is not None:
-        args += [
-            "--quant",
-            quant,
-            "--quant_dir",
-            str(models_dir / QUANT_WEIGHTS.format(quant=quant)),
-        ]
     args += [
         "--size",
         avatar["size"],
         "--sample_steps",
         str(avatar["sample_steps"]),
+        "--sample_text_guide_scale",
+        str(avatar["sample_text_guide_scale"]),
+        "--sample_audio_guide_scale",
+        str(avatar["sample_audio_guide_scale"]),
         "--mode",
         avatar["mode"],
         "--motion_frame",
@@ -104,6 +178,9 @@ def build_args(request: dict[str, Any]) -> list[str]:
         "--max_frame_num",
         str(avatar["max_frame_num"]),
     ]
+    lora = lora_path(request)
+    if lora is not None:
+        args += ["--lora_dir", str(lora), "--lora_scale", str(avatar["lora"]["scale"])]
     persistent = avatar.get("num_persistent_param_in_dit")
     if persistent is not None:
         args += ["--num_persistent_param_in_dit", str(persistent)]
@@ -141,6 +218,7 @@ def run(request_path: Path, result_path: Path) -> dict[str, Any]:
     request = read_request(request_path)
     # Caminhos relativos são do processo chamador, não do cwd isolado do gerador.
     request = {**request, **{key: str(Path(request[key]).resolve()) for key in REQUEST_PATHS}}
+    verify_lora(request)
     input_json, save_file = output_paths(request)
     input_json.parent.mkdir(parents=True, exist_ok=True)
     input_json.write_text(

@@ -57,7 +57,11 @@ AVATAR_FIELDS = (
     "motion_frame",
     "quant",
     "num_persistent_param_in_dit",
+    "lora",
+    "sample_text_guide_scale",
+    "sample_audio_guide_scale",
     "prompt",
+    "negative_prompt",
 )
 
 _HEX_COLOR = re.compile(r"#[0-9a-fA-F]{6}")

@@ -199,14 +199,16 @@ def test_runtimes_receive_literal_text_voice_canvas_and_recipe(env):
     tts = json.loads((run_dir / "tts_request.json").read_text(encoding="utf-8"))
     assert tts["text"] == TEXT
     assert tts["language"] == "pt"
-    voices = json.loads(RECIPE_PATH.read_text(encoding="utf-8"))["tts"]["voices"]
-    assert tts["voice"] == voices["feminina"]
+    recipe = json.loads(RECIPE_PATH.read_text(encoding="utf-8"))
+    assert tts["voice"] == recipe["tts"]["voices"]["feminina"]
     assert tts["voice"]["kind"] == "reference"
     avatar = json.loads((run_dir / "avatar_request.json").read_text(encoding="utf-8"))
     assert avatar["format"] == "16:9"
     assert avatar["audio"] == tts["out_wav"]
     assert avatar["recipe_avatar"]["max_frame_num"] == 1000
     assert avatar["recipe_avatar"]["quant"] is None
+    for field in ("lora", "sample_text_guide_scale", "sample_audio_guide_scale", "negative_prompt"):
+        assert avatar["recipe_avatar"][field] == recipe["avatar"][field]
     # O render recebe o canvas estendido com a cor do cenário até a razão do bucket.
     with Image.open(avatar["image"]) as render_input, Image.open(run_dir / "canvas.png") as canvas:
         assert render_input.size == (2160, 1080)
