@@ -409,6 +409,80 @@
       ]
     },
     {
+      "id": "kokoro-voice-references",
+      "kind": "derived",
+      "code_license": "Apache-2.0",
+      "weights_license": "Apache-2.0",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/hexgrad/kokoro/blob/dfb907a02bba8152ca444717ca5d78747ccb4bec/LICENSE",
+        "https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+        "https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/VOICES.md"
+      ],
+      "derived_from": [
+        "kokoro-code",
+        "kokoro-82m"
+      ],
+      "files": [
+        {
+          "path": "pf_dora.wav",
+          "sha256": "608f223af6d041f42bd8ea0071e771a75032dc9741422e406592694ef104fa0c",
+          "size": 560444,
+          "provenance": {
+            "model": "kokoro-82m/kokoro-v1_0.pth",
+            "preset": "kokoro-82m/voices/pf_dora.pt",
+            "text": "Olá! Esta é uma voz sintética de referência, criada para apresentar os vídeos com clareza e naturalidade. Falo português do Brasil, com ritmo tranquilo, boa articulação e entonação amigável.",
+            "parameters": {
+              "lang_code": "p",
+              "speed": 1.0,
+              "sample_rate": 24000,
+              "seed": 20261014,
+              "threads": 1,
+              "device": "cpu",
+              "platform": "darwin-arm64"
+            },
+            "revisions": {
+              "kokoro-code": "dfb907a02bba8152ca444717ca5d78747ccb4bec",
+              "kokoro-82m": "f3ff3571791e39611d31c381e3a41a3af07b4987"
+            },
+            "sources": {
+              "kokoro-82m/config.json": "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+              "kokoro-82m/kokoro-v1_0.pth": "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+              "kokoro-82m/voices/pf_dora.pt": "07e4ff987c5d5a8c3995efd15cc4f0db7c4c15e881b198d8ab7f67ecf51f5eb7"
+            }
+          }
+        },
+        {
+          "path": "pm_alex.wav",
+          "sha256": "98b87552668288ae540a55570388bfd8b278c14953259aad937e2228ebce1b21",
+          "size": 555644,
+          "provenance": {
+            "model": "kokoro-82m/kokoro-v1_0.pth",
+            "preset": "kokoro-82m/voices/pm_alex.pt",
+            "text": "Olá! Esta é uma voz sintética de referência, criada para apresentar os vídeos com clareza e naturalidade. Falo português do Brasil, com ritmo tranquilo, boa articulação e entonação amigável.",
+            "parameters": {
+              "lang_code": "p",
+              "speed": 1.0,
+              "sample_rate": 24000,
+              "seed": 20261014,
+              "threads": 1,
+              "device": "cpu",
+              "platform": "darwin-arm64"
+            },
+            "revisions": {
+              "kokoro-code": "dfb907a02bba8152ca444717ca5d78747ccb4bec",
+              "kokoro-82m": "f3ff3571791e39611d31c381e3a41a3af07b4987"
+            },
+            "sources": {
+              "kokoro-82m/config.json": "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+              "kokoro-82m/kokoro-v1_0.pth": "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+              "kokoro-82m/voices/pm_alex.pt": "cf0ba8c573c2480fc54123683a35cf1e2ae130428e441eb91f9149bdb188a526"
+            }
+          }
+        }
+      ]
+    },
+    {
       "id": "rembg",
       "kind": "code",
       "url": "https://github.com/danielgatis/rembg",
