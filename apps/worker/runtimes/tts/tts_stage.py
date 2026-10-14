@@ -36,6 +36,10 @@ CHECKPOINT_FILES = {
     ),
 }
 
+# Buffers do S3Tokenizer que o construtor recalcula com librosa
+# (S3Tokenizer.ignore_state_dict_missing). O s3gen_v3.pt do pt-BR não os grava.
+DERIVED_S3GEN_BUFFERS = frozenset({"tokenizer._mel_filters", "tokenizer.window"})
+
 
 class StageError(Exception):
     """Pedido inválido ou insumo recusado; o estágio sai com código 1."""
@@ -124,11 +128,36 @@ def block_chinese_segmenter(language: str) -> None:
         sys.modules["spacy_pkuseg"] = None
 
 
+def tolerate_derived_s3gen_buffers(s3gen_cls: Any) -> None:
+    """Deixa o S3Gen carregar o s3gen_v3.pt do pt-BR sem os buffers derivados.
+
+    Na 0.1.7, from_local carrega o S3Gen com strict=True e recusa o checkpoint pt-BR
+    por faltarem só _mel_filters e window, que o próprio construtor já calcula.
+    Somente essa ausência é aceita; qualquer outro peso faltante ou chave inesperada
+    continua sendo erro.
+    """
+    original = s3gen_cls.load_state_dict
+
+    def load_state_dict(self: Any, state_dict: Any, strict: bool = True, assign: bool = False):
+        result = original(self, state_dict, strict=False, assign=assign)
+        missing = sorted(set(result.missing_keys) - DERIVED_S3GEN_BUFFERS)
+        if strict and (missing or result.unexpected_keys):
+            raise RuntimeError(
+                f"checkpoint s3gen incompatível: faltando {missing}, "
+                f"inesperadas {sorted(result.unexpected_keys)}"
+            )
+        return result
+
+    s3gen_cls.load_state_dict = load_state_dict
+
+
 def load_model(models_dir: Path, language: str, device: str) -> Any:
     """Monta o diretório de checkpoint a partir de /models e carrega o modelo sem rede."""
+    from chatterbox.models.s3gen import S3Gen
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
     block_chinese_segmenter(language)
+    tolerate_derived_s3gen_buffers(S3Gen)
     with tempfile.TemporaryDirectory(prefix="chatterbox-ckpt-") as ckpt_dir:
         for name, (component, filename) in CHECKPOINT_FILES.items():
             source = models_dir / component / filename

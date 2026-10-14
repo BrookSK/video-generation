@@ -6,6 +6,10 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "chatterbox-tts==0.1.7",
     "resemble-perth==1.0.1",
+    # perth.perth_net importa pkg_resources e, sem ele, o import falha em silêncio:
+    # PerthImplicitWatermarker vira None e o ChatterboxMultilingualTTS não constrói.
+    # O setuptools 81 removeu o pkg_resources.
+    "setuptools==80.9.0",
     "torch==2.6.0",
     "torchaudio==2.6.0",
     # Dependências CUDA da wheel linux x86_64 do torch 2.6.0+cu126. O uv lê os metadados

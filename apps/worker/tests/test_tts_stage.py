@@ -252,13 +252,34 @@ def _fake_chatterbox(monkeypatch):
             calls["ckpt_files"] = sorted(p.name for p in Path(ckpt_dir).iterdir() if p.is_file())
             return cls(ChineseCangjieConverter())
 
+    class S3Gen:
+        """Imita torch.nn.Module.load_state_dict com as chaves do S3Gen da 0.1.7."""
+
+        keys = {"flow.weight", "tokenizer._mel_filters", "tokenizer.window"}
+
+        def __init__(self):
+            self.loaded = None
+
+        def load_state_dict(self, state_dict, strict=True, assign=False):
+            missing = sorted(self.keys - set(state_dict))
+            unexpected = sorted(set(state_dict) - self.keys)
+            if strict and (missing or unexpected):
+                raise RuntimeError(f"Missing key(s) in state_dict: {missing}")
+            self.loaded = state_dict
+            return types.SimpleNamespace(missing_keys=missing, unexpected_keys=unexpected)
+
     pkuseg_module = types.ModuleType("spacy_pkuseg")
     pkuseg_module.pkuseg = pkuseg
     mtl_tts = types.ModuleType("chatterbox.mtl_tts")
     mtl_tts.ChatterboxMultilingualTTS = ChatterboxMultilingualTTS
+    s3gen = types.ModuleType("chatterbox.models.s3gen")
+    s3gen.S3Gen = S3Gen
     monkeypatch.setitem(sys.modules, "spacy_pkuseg", pkuseg_module)
     monkeypatch.setitem(sys.modules, "chatterbox", types.ModuleType("chatterbox"))
     monkeypatch.setitem(sys.modules, "chatterbox.mtl_tts", mtl_tts)
+    monkeypatch.setitem(sys.modules, "chatterbox.models", types.ModuleType("chatterbox.models"))
+    monkeypatch.setitem(sys.modules, "chatterbox.models.s3gen", s3gen)
+    calls["S3Gen"] = S3Gen
     return calls
 
 
@@ -292,3 +313,27 @@ def test_segmenter_stays_enabled_only_for_zh(tmp_path, monkeypatch):
 
     assert calls["pkuseg"] == 1
     assert network.attempts[0][0] == "create_connection"
+
+
+def test_s3gen_pt_br_loads_without_buffers_derived_by_the_tokenizer(tmp_path, monkeypatch):
+    # O s3gen_v3.pt do pt-BR não traz _mel_filters/window, que o S3Tokenizer recalcula.
+    calls = _fake_chatterbox(monkeypatch)
+    tts_stage.load_model(_checkpoints(tmp_path), "pt", "cpu")
+    s3gen = calls["S3Gen"]()
+
+    s3gen.load_state_dict({"flow.weight": 1})
+
+    assert s3gen.loaded == {"flow.weight": 1}
+
+
+@pytest.mark.parametrize(
+    "state_dict",
+    [{}, {"flow.weight": 1, "flow.extra": 2}],
+    ids=["falta-peso-real", "chave-inesperada"],
+)
+def test_s3gen_still_rejects_incompatible_checkpoint(tmp_path, monkeypatch, state_dict):
+    calls = _fake_chatterbox(monkeypatch)
+    tts_stage.load_model(_checkpoints(tmp_path), "pt", "cpu")
+
+    with pytest.raises(RuntimeError, match="s3gen incompatível"):
+        calls["S3Gen"]().load_state_dict(state_dict)
