@@ -159,8 +159,9 @@ build chegou a ser registrado em `RECIPE-v1.json`; na P07, `worker_image.digest`
 voltou a `null`, porque aquele build não contém as correções da P07. A P06
 publica a imagem do commit entregue na P07 e registra o novo digest. A receita
 permanece em `draft`, e um digest não transforma o rascunho em receita
-aprovada. `recipe validate --frozen` continua recusando a receita sem digest,
-medições e avaliação do piloto.
+aprovada. Após a T05, o draft aponta para o digest efetivamente verificado.
+`recipe validate --frozen` continua recusando seu status draft e a ausência de
+medições/avaliação do piloto.
 
 A validação exige buckets de ambos os formatos, inclusive quando a seção estiver
 vazia. A receita frozen exige medições `tts`, `render` e `finalize` por formato:

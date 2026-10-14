@@ -4,8 +4,8 @@
   "status": "draft",
   "manifest": "MODEL_MANIFEST.json",
   "worker_image": {
-    "ref": "avatar-worker:pilot",
-    "digest": null
+    "ref": "vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker",
+    "digest": "sha256:ec4fad2d214958e9100d1a145db924b583b728a3946bc1d426ffd16d4771beaa"
   },
   "cutout": {
     "model": "birefnet-portrait",
