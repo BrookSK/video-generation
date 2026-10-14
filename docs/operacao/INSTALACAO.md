@@ -249,6 +249,32 @@ dependem de autorização do cliente; exclusão e retomada estão descritas abai
 Na instância, rode `bash infra/scripts/gpu-host-check.sh` e instale, pelos
 passos acima, só o que ele apontar como ausente.
 
+### Candidato P06 publicado e verificado (2026-10-14)
+
+O worker foi construído em Linux amd64 a partir de
+`d031c8763303cd5fa2fbf303bf57d6a5bf66d880` (runtime entregue na P07 e preparação
+local da P06) e publicado no registro do cliente. Use a identidade verificada,
+sem trocar pelo Image ID ou por uma reconstrução:
+
+```bash
+WORKER_IMAGE=vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker@sha256:ec4fad2d214958e9100d1a145db924b583b728a3946bc1d426ffd16d4771beaa
+docker pull "$WORKER_IMAGE"
+docker tag "$WORKER_IMAGE" avatar-worker:pilot
+```
+
+Essa imagem passou o smoke CUDA dos dois runtimes, imports do avatar e
+conferência das duas referências de voz na A100 80 GB. `models-pull.sh`,
+executado dentro dela, terminou com zero downloads e 40 arquivos conferidos.
+Claim, presença persistida e uploads de preparação foram exercitados pelo
+supervisor real num preflight isolado entre as VPS, com dados sintéticos de
+teste, token privado e proxy HTTPS de CA interna bloqueando `/internal/*`.
+
+Isso não é piloto de voz/animação nem instalação final: `RECIPE-v1.json` segue
+`draft`, sem medições/aprovação humana ou congelamento. O domínio HTTPS público,
+o túnel definitivo restrito, os materiais autorizados e o aceite continuam
+pré-requisitos das etapas seguintes. O preflight não constitui o pacote inicial
+do cliente e suas credenciais/dados temporários são descartados ao encerrar.
+
 ### Perfil da receita draft
 
 `docs/models/RECIPE-v1.json` continua `draft`, com o perfil
