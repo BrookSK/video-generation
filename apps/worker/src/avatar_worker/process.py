@@ -31,9 +31,10 @@ def _stop_group(process: subprocess.Popen) -> None:
         pass
     finally:
         # O líder pode ter saído antes dos filhos ou sem esperar o renderer.
+        # macOS devolve EPERM quando o grupo só tem zumbis; nada resta a matar.
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
         process.wait()
 
