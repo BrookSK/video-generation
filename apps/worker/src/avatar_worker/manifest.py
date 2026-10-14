@@ -16,7 +16,8 @@ ALLOWED_LICENSES = frozenset(
     name.casefold() for name in ("Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause")
 )
 FORBIDDEN_TERMS = ("bria-rmbg", "insightface")
-KINDS = ("model", "code", "wheel")
+# derived: arquivos gerados localmente a partir de outros componentes; o pull não os baixa.
+KINDS = ("model", "code", "wheel", "derived")
 
 _COMPONENT_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 _COMMIT = re.compile(r"[0-9a-fA-F]{40}")
@@ -57,11 +58,83 @@ def _check_https(label: str, url: Any) -> list[str]:
     return [f"{label}: url sem https ({url!r})"]
 
 
-def _check_file(label: str, index: int, entry: Any) -> list[str]:
+def _check_license_evidence(label: str, evidence: Any) -> list[str]:
+    if not isinstance(evidence, list) or not evidence:
+        return [f"{label}: license_evidence precisa ser uma lista não vazia de URLs https"]
+    violations: list[str] = []
+    for index, url in enumerate(evidence):
+        violations += _check_https(f"{label}: license_evidence #{index}", url)
+    return violations
+
+
+def _derived_origin(
+    label: str, derived_from: Any, components: dict[str, Any]
+) -> tuple[list[str], set[str]]:
+    """Confere a origem de um derived e devolve os arquivos que a proveniência pode citar.
+
+    Cada origem é um componente não derivado do manifesto; um arquivo de origem é citado
+    como <id>/<path>, o mesmo caminho relativo a /models usado pelo pull.
+    """
+    if not isinstance(derived_from, list) or not derived_from:
+        violation = f"{label}: derived_from precisa listar componentes não derivados do manifesto"
+        return [violation], set()
+    violations: list[str] = []
+    files: set[str] = set()
+    for source in derived_from:
+        origin = components.get(source) if isinstance(source, str) else None
+        if origin is None or origin.get("kind") == "derived":
+            violations.append(
+                f"{label}: derived_from {source!r} não é componente não derivado do manifesto"
+            )
+            continue
+        entries = origin.get("files")
+        if isinstance(entries, list):
+            files.update(
+                f"{source}/{entry['path']}"
+                for entry in entries
+                if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+            )
+    return violations, files
+
+
+def _check_local_file(
+    label: str, file_label: str, entry: dict[str, Any], sources: set[str]
+) -> list[str]:
+    """Arquivo derived: gerado localmente, sem url de download e com proveniência própria."""
+    violations: list[str] = []
+    path = entry.get("path")
+    relative = PurePosixPath(path) if isinstance(path, str) else PurePosixPath()
+    if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+        violations.append(f"{file_label}: caminho fora de {label}/")
+    if entry.get("url") is not None:
+        violations.append(f"{file_label}: derivado local não tem url de download")
+    provenance = entry.get("provenance")
+    if not isinstance(provenance, dict):
+        return [*violations, f"{file_label} sem provenance"]
+    for key in ("model", "preset"):
+        reference = provenance.get(key)
+        if not (isinstance(reference, str) and reference in sources):
+            violations.append(
+                f"{file_label}: provenance.{key} {reference!r} não é arquivo de derived_from"
+            )
+    text = provenance.get("text")
+    if not (isinstance(text, str) and text.strip()):
+        violations.append(f"{file_label} sem provenance.text")
+    parameters = provenance.get("parameters")
+    if not (isinstance(parameters, dict) and parameters):
+        violations.append(f"{file_label} sem provenance.parameters")
+    return violations
+
+
+def _check_file(label: str, index: int, entry: Any, sources: set[str] | None) -> list[str]:
+    """Confere um arquivo; com sources, é arquivo derived que cita essas origens."""
     if not isinstance(entry, dict):
         return [f"{label}: arquivo #{index} não é um objeto"]
     file_label = f"{label}: arquivo {entry.get('path') or f'#{index}'}"
-    violations = _check_https(file_label, entry.get("url"))
+    if sources is None:
+        violations = _check_https(file_label, entry.get("url"))
+    else:
+        violations = _check_local_file(label, file_label, entry, sources)
     sha256 = entry.get("sha256")
     if not (isinstance(sha256, str) and _SHA256.fullmatch(sha256)):
         violations.append(f"{file_label} sem sha256 de 64 hexadecimais")
@@ -71,7 +144,7 @@ def _check_file(label: str, index: int, entry: Any) -> list[str]:
     return violations
 
 
-def _check_component(index: int, component: Any) -> list[str]:
+def _check_component(index: int, component: Any, components: dict[str, Any]) -> list[str]:
     if not isinstance(component, dict):
         return [f"componente #{index}: não é um objeto"]
     label = component.get("id") or f"componente #{index}"
@@ -86,17 +159,25 @@ def _check_component(index: int, component: Any) -> list[str]:
         violations.append(f"{label}: id fora do formato {_COMPONENT_ID.pattern}")
     if kind not in KINDS:
         violations.append(f"{label}: kind {kind!r} fora de {', '.join(KINDS)}")
-    violations += _check_https(label, component.get("url"))
+    sources = None
+    if kind == "derived":
+        origin_violations, sources = _derived_origin(
+            label, component.get("derived_from"), components
+        )
+        violations += origin_violations
+    else:
+        violations += _check_https(label, component.get("url"))
     if component.get("commercial_use") is not True:
         violations.append(f"{label}: commercial_use diferente de true")
     if not _is_allowed_license(component.get("code_license")):
         violations.append(
             f"{label}: code_license {component.get('code_license')!r} não é permitida"
         )
-    if kind == "model" and not _is_allowed_license(component.get("weights_license")):
+    if kind in ("model", "derived") and not _is_allowed_license(component.get("weights_license")):
         violations.append(
             f"{label}: weights_license {component.get('weights_license')!r} não é permitida"
         )
+    violations += _check_license_evidence(label, component.get("license_evidence"))
     if kind in ("model", "code") and not (
         isinstance(revision, str) and _COMMIT.fullmatch(revision)
     ):
@@ -109,10 +190,10 @@ def _check_component(index: int, component: Any) -> list[str]:
     if not isinstance(files, list):
         violations.append(f"{label}: files precisa ser uma lista")
         files = []
-    if kind in ("model", "wheel") and not files:
+    if kind in ("model", "wheel", "derived") and not files:
         violations.append(f"{label}: componente {kind} sem arquivo")
     for file_index, entry in enumerate(files):
-        violations += _check_file(label, file_index, entry)
+        violations += _check_file(label, file_index, entry, sources)
 
     named_values = [component.get("id"), component.get("url")]
     named_values += [entry.get("path") for entry in files if isinstance(entry, dict)]
@@ -132,6 +213,11 @@ def check_policy(manifest: dict[str, Any]) -> list[str]:
     if not isinstance(components, list) or not components:
         return [*violations, "components precisa ser uma lista não vazia"]
 
+    by_id = {
+        component["id"]: component
+        for component in components
+        if isinstance(component, dict) and isinstance(component.get("id"), str)
+    }
     seen: set[str] = set()
     for index, component in enumerate(components):
         component_id = component.get("id") if isinstance(component, dict) else None
@@ -139,16 +225,19 @@ def check_policy(manifest: dict[str, Any]) -> list[str]:
             if component_id in seen:
                 violations.append(f"{component_id}: id duplicado")
             seen.add(component_id)
-        violations += _check_component(index, component)
+        violations += _check_component(index, component, by_id)
     return violations
 
 
 def _summary(component: dict[str, Any]) -> str:
     files = component.get("files") or []
+    if component["kind"] == "derived":
+        origin = f"origem {', '.join(component['derived_from'])}"
+    else:
+        origin = f"revisão {component['revision']}"
     return (
         f"{component['id']} ({component['kind']}): código {component['code_license']}, "
-        f"pesos {component.get('weights_license') or '-'}, "
-        f"revisão {component['revision']}, {len(files)} arquivo(s)"
+        f"pesos {component.get('weights_license') or '-'}, {origin}, {len(files)} arquivo(s)"
     )
 
 

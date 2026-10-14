@@ -90,6 +90,7 @@ def _manifest(server, files=None):
                 "code_license": "Apache-2.0",
                 "weights_license": "Apache-2.0",
                 "commercial_use": True,
+                "license_evidence": ["https://huggingface.co/example/synthetic/blob/x/LICENSE"],
                 "files": files,
             },
             {
@@ -100,6 +101,7 @@ def _manifest(server, files=None):
                 "code_license": "MIT",
                 "weights_license": None,
                 "commercial_use": True,
+                "license_evidence": ["https://github.com/example/synthetic/blob/x/LICENSE"],
                 "files": [
                     {
                         "path": "w.whl",

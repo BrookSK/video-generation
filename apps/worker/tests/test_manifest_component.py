@@ -1,10 +1,11 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
 from avatar_worker import manifest as manifest_module
-from avatar_worker.manifest import main
+from avatar_worker.manifest import load_manifest, main
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 BODIES = {
@@ -12,6 +13,8 @@ BODIES = {
     "https://huggingface.co/example/b/w.onnx": b"pesos sinteticos B",
     "https://huggingface.co/example/c/w.onnx": b"pesos sinteticos C",
 }
+MANIFEST_PATH = Path(__file__).resolve().parents[3] / "docs" / "models" / "MODEL_MANIFEST.json"
+LORA = next(c for c in load_manifest(MANIFEST_PATH)["components"] if c["id"] == "lightx2v-lora")
 
 
 def _component(name):
@@ -25,6 +28,7 @@ def _component(name):
         "code_license": "MIT",
         "weights_license": "Apache-2.0",
         "commercial_use": True,
+        "license_evidence": [f"https://huggingface.co/example/{name}/blob/{COMMIT}/LICENSE"],
         "files": [
             {
                 "path": "w.onnx",
@@ -50,9 +54,10 @@ def downloads(monkeypatch):
     return requested
 
 
-def _pull(tmp_path, *components):
+def _pull(tmp_path, *components, extra=()):
     policy = tmp_path / "MODEL_MANIFEST.json"
-    manifest = {"schema_version": 1, "components": [_component(n) for n in ("a", "b", "c")]}
+    models = [_component(n) for n in ("a", "b", "c")]
+    manifest = {"schema_version": 1, "components": [*models, *extra]}
     policy.write_text(json.dumps(manifest), encoding="utf-8")
     dest = tmp_path / "models"
     dest.mkdir()
@@ -93,3 +98,19 @@ def test_unknown_component_exits_1_before_any_download(tmp_path, downloads, caps
     assert downloads == []
     assert list(dest.iterdir()) == []
     assert "componente fora do manifesto: modelo-inexistente" in capsys.readouterr().err
+
+
+def test_lora_with_divergent_bytes_exits_1_without_final_file(
+    tmp_path, downloads, monkeypatch, capsys
+):
+    (lora_file,) = LORA["files"]
+    monkeypatch.setitem(BODIES, lora_file["url"], b"bytes que nao sao a LoRA lightx2v")
+
+    code, dest = _pull(tmp_path, "lightx2v-lora", extra=[LORA])
+
+    assert code == 1
+    assert downloads == [lora_file["url"]]
+    assert list((dest / "lightx2v-lora").iterdir()) == []
+    err = capsys.readouterr().err
+    assert f"lightx2v-lora/{lora_file['path']}: sha256" in err
+    assert "diferente do manifesto" in err

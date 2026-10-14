@@ -231,6 +231,29 @@
       "source_ref": "refs/pr/1"
     },
     {
+      "id": "lightx2v-lora",
+      "kind": "model",
+      "url": "https://huggingface.co/Kijai/WanVideo_comfy",
+      "revision": "8260d429d19fd7a72304cad059160b95d843913f",
+      "code_license": "Apache-2.0",
+      "weights_license": "Apache-2.0",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/Kijai/WanVideo_comfy/blob/8260d429d19fd7a72304cad059160b95d843913f/README.md",
+        "https://huggingface.co/lightx2v/Wan2.1-T2V-14B-StepDistill-CfgDistill/blob/b9baaa9a0c29226dea39043db647d1ced950bbea/LICENSE.txt",
+        "https://huggingface.co/lightx2v/Wan2.1-T2V-14B-StepDistill-CfgDistill/blob/b9baaa9a0c29226dea39043db647d1ced950bbea/README.md",
+        "https://huggingface.co/Wan-AI/Wan2.1-T2V-14B/blob/a064a6c71f5be440641209c07bf2a5ce7a2ff5e4/LICENSE.txt"
+      ],
+      "files": [
+        {
+          "path": "Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors",
+          "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/8260d429d19fd7a72304cad059160b95d843913f/Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors",
+          "sha256": "914fafa5dded72e6c470d6f764b97fe4d71567dae7cc01d1181b310efd5c37a6",
+          "size": 316822496
+        }
+      ]
+    },
+    {
       "id": "chatterbox-tts",
       "kind": "code",
       "url": "https://github.com/resemble-ai/chatterbox",
@@ -331,6 +354,59 @@
       ],
       "files": [],
       "version": "1.0.1"
+    },
+    {
+      "id": "kokoro-code",
+      "kind": "code",
+      "url": "https://github.com/hexgrad/kokoro",
+      "revision": "dfb907a02bba8152ca444717ca5d78747ccb4bec",
+      "code_license": "Apache-2.0",
+      "weights_license": null,
+      "commercial_use": true,
+      "license_evidence": [
+        "https://github.com/hexgrad/kokoro/blob/dfb907a02bba8152ca444717ca5d78747ccb4bec/LICENSE"
+      ],
+      "files": []
+    },
+    {
+      "id": "kokoro-82m",
+      "kind": "model",
+      "url": "https://huggingface.co/hexgrad/Kokoro-82M",
+      "revision": "f3ff3571791e39611d31c381e3a41a3af07b4987",
+      "code_license": "Apache-2.0",
+      "weights_license": "Apache-2.0",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+        "https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/VOICES.md",
+        "https://github.com/hexgrad/kokoro/blob/dfb907a02bba8152ca444717ca5d78747ccb4bec/LICENSE"
+      ],
+      "files": [
+        {
+          "path": "config.json",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/config.json",
+          "sha256": "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+          "size": 2351
+        },
+        {
+          "path": "kokoro-v1_0.pth",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/kokoro-v1_0.pth",
+          "sha256": "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+          "size": 327212226
+        },
+        {
+          "path": "voices/pf_dora.pt",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/voices/pf_dora.pt",
+          "sha256": "07e4ff987c5d5a8c3995efd15cc4f0db7c4c15e881b198d8ab7f67ecf51f5eb7",
+          "size": 523425
+        },
+        {
+          "path": "voices/pm_alex.pt",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/voices/pm_alex.pt",
+          "sha256": "cf0ba8c573c2480fc54123683a35cf1e2ae130428e441eb91f9149bdb188a526",
+          "size": 523425
+        }
+      ]
     },
     {
       "id": "rembg",

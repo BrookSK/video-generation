@@ -2,10 +2,11 @@ import copy
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
-from avatar_worker.manifest import check_policy, main
+from avatar_worker.manifest import check_policy, load_manifest, main
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 SHA256 = "a" * 64
@@ -60,6 +61,34 @@ VALID_MANIFEST = {
                 }
             ],
         },
+    ],
+}
+
+REAL_MANIFEST = load_manifest(
+    Path(__file__).resolve().parents[3] / "docs" / "models" / "MODEL_MANIFEST.json"
+)
+LORA_FILE = "Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors"
+# Referência de voz derivada das fontes Kokoro reais; hash, tamanho e texto são sintéticos.
+DERIVED = {
+    "id": "referencias-de-teste",
+    "kind": "derived",
+    "code_license": "Apache-2.0",
+    "weights_license": "Apache-2.0",
+    "commercial_use": True,
+    "license_evidence": ["https://github.com/hexgrad/kokoro/blob/x/LICENSE"],
+    "derived_from": ["kokoro-code", "kokoro-82m"],
+    "files": [
+        {
+            "path": "pf_dora.wav",
+            "sha256": SHA256,
+            "size": 4096,
+            "provenance": {
+                "model": "kokoro-82m/kokoro-v1_0.pth",
+                "preset": "kokoro-82m/voices/pf_dora.pt",
+                "text": "Referência sintética de voz em português.",
+                "parameters": {"lang_code": "p", "sample_rate": 24000},
+            },
+        }
     ],
 }
 
@@ -170,6 +199,10 @@ def test_module_entry_point_exit_codes(tmp_path):
         (_set(1, "id", "/x"), "/x: id fora do formato"),
         (_set(1, "id", "../../tmp/escape"), "../../tmp/escape: id fora do formato"),
         (_set(1, "id", "Rembg"), "Rembg: id fora do formato"),
+        (
+            _set(1, "license_evidence", ["http://github.com/danielgatis/rembg/blob/x/LICENSE"]),
+            "rembg: license_evidence #0: url sem https",
+        ),
         (_set(1, "kind", "dataset"), "rembg: kind 'dataset' fora de model, code, wheel"),
         (
             _add_component("bria-rmbg", "https://huggingface.co/briaai/RMBG-2.0"),
@@ -192,6 +225,101 @@ def test_policy_violation_is_named_and_exits_1(tmp_path, capsys, mutate, expecte
     err = capsys.readouterr().err
     assert "Manifesto recusado" in err
     assert expected in err
+
+
+def _real_with_derived(mutate=None):
+    """Manifesto real mais um derived das fontes Kokoro; mutate recebe os componentes por id."""
+    manifest = copy.deepcopy(REAL_MANIFEST)
+    manifest["components"].append(copy.deepcopy(DERIVED))
+    if mutate:
+        mutate({component["id"]: component for component in manifest["components"]})
+    return manifest
+
+
+def test_real_manifest_accepts_local_derived_from_kokoro_sources(tmp_path, capsys):
+    path = _write(tmp_path, _real_with_derived())
+
+    assert main(["verify", "--policy", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "referencias-de-teste (derived)" in out
+    assert "origem kokoro-code, kokoro-82m, 1 arquivo(s)" in out
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (
+            lambda c: c["lightx2v-lora"].update(weights_license="CC-BY-NC-4.0"),
+            ["lightx2v-lora: weights_license 'CC-BY-NC-4.0' não é permitida"],
+        ),
+        (
+            lambda c: c["lightx2v-lora"].update(weights_license=None),
+            ["lightx2v-lora: weights_license None não é permitida"],
+        ),
+        (
+            lambda c: c["lightx2v-lora"].pop("license_evidence"),
+            ["lightx2v-lora: license_evidence precisa ser uma lista não vazia de URLs https"],
+        ),
+        (
+            lambda c: c["lightx2v-lora"].update(kind="derived"),
+            [
+                "lightx2v-lora: derived_from precisa listar componentes não derivados",
+                f"lightx2v-lora: arquivo {LORA_FILE}: derivado local não tem url de download",
+                f"lightx2v-lora: arquivo {LORA_FILE} sem provenance",
+            ],
+        ),
+        (
+            lambda c: c["referencias-de-teste"].update(weights_license="CC-BY-NC-4.0"),
+            ["referencias-de-teste: weights_license 'CC-BY-NC-4.0' não é permitida"],
+        ),
+        (
+            lambda c: c["referencias-de-teste"].update(
+                derived_from=["referencias-de-teste", "kokoro-82m-v2"]
+            ),
+            [
+                "derived_from 'referencias-de-teste' não é componente não derivado do manifesto",
+                "derived_from 'kokoro-82m-v2' não é componente não derivado do manifesto",
+            ],
+        ),
+        (
+            lambda c: c["referencias-de-teste"]["files"][0]["provenance"].update(
+                text=" ", parameters={}
+            ),
+            [
+                "referencias-de-teste: arquivo pf_dora.wav sem provenance.text",
+                "referencias-de-teste: arquivo pf_dora.wav sem provenance.parameters",
+            ],
+        ),
+        (
+            lambda c: c["referencias-de-teste"]["files"][0]["provenance"].update(
+                model=f"lightx2v-lora/{LORA_FILE}"
+            ),
+            [f"provenance.model 'lightx2v-lora/{LORA_FILE}' não é arquivo de derived_from"],
+        ),
+        (
+            lambda c: c["referencias-de-teste"]["files"][0].update(path="../pf_dora.wav"),
+            ["arquivo ../pf_dora.wav: caminho fora de referencias-de-teste/"],
+        ),
+    ],
+    ids=[
+        "lora-nao-comercial",
+        "lora-sem-licenca",
+        "lora-sem-evidencia",
+        "lora-como-derivado",
+        "derivado-nao-comercial",
+        "origem-derivada-ou-ausente",
+        "proveniencia-incompleta",
+        "proveniencia-fora-da-origem",
+        "caminho-fora-do-componente",
+    ],
+)
+def test_real_lora_and_derived_refusals_are_named(tmp_path, capsys, mutate, expected):
+    path = _write(tmp_path, _real_with_derived(mutate))
+
+    assert main(["verify", "--policy", str(path)]) == 1
+    err = capsys.readouterr().err
+    for message in expected:
+        assert message in err
 
 
 def test_license_comparison_ignores_case():
