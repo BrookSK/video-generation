@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import re
 import sys
 from collections.abc import Mapping
@@ -17,8 +18,11 @@ CANVAS = {"9:16": (1080, 1920), "16:9": (1920, 1080)}
 FPS = 25
 VOICES = ("feminina", "masculina")
 STATUSES = ("draft", "frozen")
-VOICE_KINDS = ("default", "reference")
+# Cada voz usa uma referência sintética própria do manifesto, nunca a voz padrão (DEC-004).
+VOICE_KINDS = ("reference",)
 AVATAR_SIZES = ("infinitetalk-480", "infinitetalk-720")
+# Mesmas faixas de _COMPOSITION_RANGES em avatar_api.assets (geometria de canvas.compose_canvas).
+COMPOSITION_RANGES = {"scale": (0.3, 1.2), "x": (0.0, 1.0), "y": (0.5, 1.2)}
 X264_PRESETS = (
     "ultrafast",
     "superfast",
@@ -86,7 +90,12 @@ class Avatar:
     motion_frame: int
     quant: str | None
     num_persistent_param_in_dit: int | None
+    # dict simples: segue em JSON para o estágio de avatar.
+    lora: dict[str, Any] | None
+    sample_text_guide_scale: float
+    sample_audio_guide_scale: float
     prompt: str
+    negative_prompt: str | None
     buckets: Mapping[str, tuple[int, int]]
 
 
@@ -111,6 +120,12 @@ class Limits:
 
 
 @dataclass(frozen=True)
+class Calibration:
+    # Enquadramento {scale, x, y} por formato para amostras do piloto sem composição própria.
+    composition: Mapping[str, Mapping[str, float]]
+
+
+@dataclass(frozen=True)
 class Recipe:
     schema_version: int
     name: str
@@ -121,6 +136,7 @@ class Recipe:
     tts: Tts
     avatar: Avatar
     canvas: Mapping[str, tuple[int, int]]
+    calibration: Calibration
     output: Output
     limits: Limits
     pilot: Mapping[str, Any] | None
@@ -191,6 +207,11 @@ class _Checker:
             kind = "número >= 0" if zero else "número positivo"
             self.add(f"{label} precisa ser {kind} (recebido {value!r})")
 
+    def finite_positive(self, parent: dict[str, Any], key: str, label: str) -> None:
+        value = parent.get(key)
+        if not (_is_number(value) and math.isfinite(value) and value > 0):
+            self.add(f"{label} precisa ser número finito e positivo (recebido {value!r})")
+
     def ids(
         self,
         parent: dict[str, Any],
@@ -218,32 +239,107 @@ class _Checker:
             )
 
 
-def _manifest_kinds(manifest: dict[str, Any]) -> dict[str, Any]:
+def _manifest_components(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     components = manifest.get("components")
     if not isinstance(components, list):
         return {}
     return {
-        component["id"]: component.get("kind")
+        component["id"]: component
         for component in components
         if isinstance(component, dict) and isinstance(component.get("id"), str)
     }
 
 
-def _check_voice(check: _Checker, name: str, voice: Any) -> None:
-    label = f"tts.voices.{name}"
-    if not isinstance(voice, dict):
-        check.add(f"{label} precisa ser um objeto")
+def _files(component: dict[str, Any]) -> dict[str, Any]:
+    """Arquivos de um componente do manifesto: path -> sha256."""
+    files = component.get("files")
+    return {
+        entry["path"]: entry.get("sha256")
+        for entry in (files if isinstance(files, list) else [])
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+
+
+def _check_voices(check: _Checker, voices: dict[str, Any], derived: dict[str, Any]) -> None:
+    """Cada voz aponta para um arquivo derived do manifesto, e nenhuma repete a outra."""
+    for name in VOICES:
+        if name not in voices:
+            check.add(f"tts.voices sem a voz {name}")
+    references = []
+    for name, voice in voices.items():
+        label = f"tts.voices.{name}"
+        if not isinstance(voice, dict):
+            check.add(f"{label} precisa ser um objeto")
+            continue
+        check.text(voice, "kind", f"{label}.kind", VOICE_KINDS)
+        if voice.get("kind") != "reference":
+            continue
+        path, sha256 = voice.get("path"), voice.get("sha256")
+        relative = PurePosixPath(path) if isinstance(path, str) else PurePosixPath()
+        if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+            check.add(f"{label}.path precisa ser caminho relativo a /models (recebido {path!r})")
+        elif not (isinstance(sha256, str) and _SHA256.fullmatch(sha256)):
+            check.add(f"{label}.sha256 precisa ter 64 hexadecimais minúsculos")
+        else:
+            references.append((path, sha256))
+            if derived.get(path) != sha256:
+                check.add(f"{label}: {path} com sha256 {sha256} não é arquivo derived do manifesto")
+    paths = {path for path, _ in references}
+    hashes = {sha256 for _, sha256 in references}
+    if len(paths) < len(references) or len(hashes) < len(references):
+        check.add("tts.voices precisam de referências distintas, com caminho e sha256 próprios")
+
+
+def _check_lora(
+    check: _Checker, avatar: dict[str, Any], components: dict[str, dict[str, Any]]
+) -> None:
+    """LoRA declarada: componente model do manifesto, arquivo e sha256 dele, escala finita."""
+    if "lora" not in avatar:
+        check.add("avatar.lora ausente: declare a LoRA ou null para perfil sem LoRA")
         return
-    check.text(voice, "kind", f"{label}.kind", VOICE_KINDS)
-    if voice.get("kind") != "reference":
+    lora = avatar["lora"]
+    if lora is None:
         return
-    path = voice.get("path")
-    parts = PurePosixPath(path).parts if isinstance(path, str) else ()
-    if not path or PurePosixPath(path).is_absolute() or ".." in parts:
-        check.add(f"{label}.path precisa ser caminho relativo a /models (recebido {path!r})")
-    sha256 = voice.get("sha256")
-    if sha256 is not None and not (isinstance(sha256, str) and _SHA256.fullmatch(sha256)):
-        check.add(f"{label}.sha256 precisa ter 64 hexadecimais minúsculos")
+    if not isinstance(lora, dict):
+        check.add("avatar.lora precisa ser um objeto ou null")
+        return
+    component_id = lora.get("component")
+    component = components.get(component_id) if isinstance(component_id, str) else None
+    if component is None or component.get("kind") != "model":
+        check.add(f"avatar.lora.component {component_id!r} não é componente model do manifesto")
+    else:
+        files = _files(component)
+        name, sha256 = lora.get("file"), lora.get("sha256")
+        if not isinstance(name, str) or name not in files:
+            check.add(f"avatar.lora.file {name!r} não é arquivo de {component_id} no manifesto")
+        elif not isinstance(sha256, str) or sha256 != files[name]:
+            check.add(f"avatar.lora.sha256 {sha256!r} diferente do manifesto em {component_id}")
+    check.finite_positive(lora, "scale", "avatar.lora.scale")
+
+
+def _check_calibration(check: _Checker, raw: dict[str, Any]) -> None:
+    """Enquadramento padrão das amostras de calibração, nas faixas aceitas pelos cenários."""
+    calibration = raw.get("calibration")
+    composition = calibration.get("composition") if isinstance(calibration, dict) else None
+    if not isinstance(composition, dict):
+        check.add("calibration.composition precisa ser um objeto por formato")
+        return
+    if set(composition) != set(FORMATS):
+        check.add(
+            f"calibration.composition precisa ter exatamente os formatos {', '.join(FORMATS)}"
+        )
+    for aspect in FORMATS:
+        if aspect not in composition:
+            continue
+        framing = composition[aspect]
+        label = f"calibration.composition.{aspect}"
+        if not isinstance(framing, dict) or set(framing) != set(COMPOSITION_RANGES):
+            check.add(f"{label} precisa ter exatamente {', '.join(COMPOSITION_RANGES)}")
+            continue
+        for key, (low, high) in COMPOSITION_RANGES.items():
+            value = framing[key]
+            if not (_is_number(value) and math.isfinite(value) and low <= value <= high):
+                check.add(f"{label}.{key} {value!r} fora da faixa de {low:g} a {high:g}")
 
 
 def _check_buckets(check: _Checker, avatar: dict[str, Any]) -> None:
@@ -270,10 +366,6 @@ def _check_frozen(check: _Checker, raw: dict[str, Any]) -> None:
     digest = _dict(raw.get("worker_image")).get("digest")
     if not (isinstance(digest, str) and _IMAGE_DIGEST.fullmatch(digest)):
         check.add(f"congelada: worker_image.digest precisa ser sha256:<64 hex> ({digest!r})")
-
-    for name, voice in _dict(_dict(raw.get("tts")).get("voices")).items():
-        if _dict(voice).get("kind") == "reference" and not voice.get("sha256"):
-            check.add(f"congelada: tts.voices.{name} de referência sem sha256")
 
     pilot = raw.get("pilot")
     if not isinstance(pilot, dict):
@@ -323,7 +415,8 @@ def check_recipe(
 ) -> list[str]:
     """Devolve os problemas da receita; lista vazia significa receita válida."""
     check = _Checker()
-    kinds = _manifest_kinds(manifest)
+    components = _manifest_components(manifest)
+    kinds = {component_id: component.get("kind") for component_id, component in components.items()}
     weights_or_code = ("model", "code")
 
     check.equals(raw, "schema_version", "schema_version", 1)
@@ -349,11 +442,13 @@ def check_recipe(
     check.equals(tts, "sample_rate", "tts.sample_rate", 24000)
     check.ids(tts, "components", "tts.components", kinds, weights_or_code)
     voices = check.section(tts, "voices", "tts.voices")
-    for name in VOICES:
-        if name not in voices:
-            check.add(f"tts.voices sem a voz {name}")
-    for name, voice in voices.items():
-        _check_voice(check, name, voice)
+    derived = {
+        f"{component_id}/{path}": sha256
+        for component_id, component in components.items()
+        if component.get("kind") == "derived"
+        for path, sha256 in _files(component).items()
+    }
+    _check_voices(check, voices, derived)
 
     avatar = check.section(raw, "avatar", "avatar")
     check.text(avatar, "engine", "avatar.engine")
@@ -365,19 +460,34 @@ def check_recipe(
     check.equals(avatar, "mode", "avatar.mode", "streaming")
     check.integer(avatar, "max_frame_num", "avatar.max_frame_num")
     check.integer(avatar, "motion_frame", "avatar.motion_frame")
-    if avatar.get("quant") is not None:
-        check.text(avatar, "quant", "avatar.quant")
+    quant = avatar.get("quant")
+    if quant is not None:
+        check.add(
+            f"avatar.quant {quant!r} não roda na imagem do worker: a quantização compila a "
+            "extensão CUDA do optimum-quanto na primeira inferência e a imagem não tem nvcc; "
+            "use null (bf16)"
+        )
     if avatar.get("num_persistent_param_in_dit") is not None:
         check.integer(
             avatar, "num_persistent_param_in_dit", "avatar.num_persistent_param_in_dit", 0
         )
+    _check_lora(check, avatar, components)
+    check.finite_positive(avatar, "sample_text_guide_scale", "avatar.sample_text_guide_scale")
+    check.finite_positive(avatar, "sample_audio_guide_scale", "avatar.sample_audio_guide_scale")
     check.text(avatar, "prompt", "avatar.prompt")
+    negative = avatar.get("negative_prompt")
+    if negative is not None and (not isinstance(negative, str) or negative.strip()):
+        check.add(
+            "avatar.negative_prompt precisa ser null: o generate_infinitetalk.py fixado (50aa0a94) "
+            "não expõe prompt negativo"
+        )
     _check_buckets(check, avatar)
 
     canvas = raw.get("canvas")
     expected_canvas = {aspect: list(size) for aspect, size in CANVAS.items()}
     if canvas != expected_canvas:
         check.add(f"canvas precisa ser exatamente {expected_canvas} (recebido {canvas!r})")
+    _check_calibration(check, raw)
 
     output = check.section(raw, "output", "output")
     check.equals(output, "fps", "output.fps", FPS)
@@ -456,12 +566,17 @@ def _build(raw: dict[str, Any]) -> Recipe:
             motion_frame=avatar["motion_frame"],
             quant=avatar.get("quant"),
             num_persistent_param_in_dit=avatar.get("num_persistent_param_in_dit"),
+            lora=dict(avatar["lora"]) if avatar["lora"] is not None else None,
+            sample_text_guide_scale=float(avatar["sample_text_guide_scale"]),
+            sample_audio_guide_scale=float(avatar["sample_audio_guide_scale"]),
             prompt=avatar["prompt"],
+            negative_prompt=avatar.get("negative_prompt"),
             buckets=MappingProxyType(
                 {aspect: tuple(size) for aspect, size in avatar["buckets"].items()}
             ),
         ),
         canvas=MappingProxyType({aspect: tuple(size) for aspect, size in raw["canvas"].items()}),
+        calibration=Calibration(composition=_freeze(raw["calibration"]["composition"])),
         output=Output(**{field: output[field] for field in Output.__dataclass_fields__}),
         limits=Limits(
             max_audio_seconds=limits["max_audio_seconds"],

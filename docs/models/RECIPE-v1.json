@@ -5,7 +5,7 @@
   "manifest": "MODEL_MANIFEST.json",
   "worker_image": {
     "ref": "avatar-worker:pilot",
-    "digest": "sha256:60a2b80f8e6998fa6cf736076cc310d3cc0e0617a414f37e196efe304b714242"
+    "digest": null
   },
   "cutout": {
     "model": "birefnet-portrait",
@@ -22,8 +22,16 @@
       "resemble-perth"
     ],
     "voices": {
-      "feminina": {"kind": "default"},
-      "masculina": {"kind": "default"}
+      "feminina": {
+        "kind": "reference",
+        "path": "kokoro-voice-references/pf_dora.wav",
+        "sha256": "608f223af6d041f42bd8ea0071e771a75032dc9741422e406592694ef104fa0c"
+      },
+      "masculina": {
+        "kind": "reference",
+        "path": "kokoro-voice-references/pm_alex.wav",
+        "sha256": "98b87552668288ae540a55570388bfd8b278c14953259aad937e2228ebce1b21"
+      }
     }
   },
   "avatar": {
@@ -32,18 +40,28 @@
       "infinitetalk-code",
       "infinitetalk-weights",
       "wan2.1-i2v-14b-480p",
-      "chinese-wav2vec2-base"
+      "chinese-wav2vec2-base",
+      "lightx2v-lora"
     ],
     "wheels": ["flash-attn-wheel", "xformers-wheel"],
-    "profile": "480p-fp8",
+    "profile": "480p-bf16-a100-lightx2v4",
     "size": "infinitetalk-480",
-    "sample_steps": 40,
+    "sample_steps": 4,
     "mode": "streaming",
     "max_frame_num": 1000,
     "motion_frame": 9,
-    "quant": "fp8",
-    "num_persistent_param_in_dit": 0,
-    "prompt": "A person talks to the camera with natural head and shoulder movements and expressive facial expressions.",
+    "quant": null,
+    "num_persistent_param_in_dit": null,
+    "lora": {
+      "component": "lightx2v-lora",
+      "file": "Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors",
+      "sha256": "914fafa5dded72e6c470d6f764b97fe4d71567dae7cc01d1181b310efd5c37a6",
+      "scale": 1.0
+    },
+    "sample_text_guide_scale": 1.0,
+    "sample_audio_guide_scale": 2.0,
+    "prompt": "A head-and-shoulders shot of a person talking to the camera, with natural head movements, subtle shoulder motion and expressive facial expressions. The hands stay out of the frame, the person makes no gestures and no new objects appear at the edges of the frame.",
+    "negative_prompt": null,
     "buckets": {
       "9:16": [448, 832],
       "16:9": [896, 448]
@@ -52,6 +70,12 @@
   "canvas": {
     "9:16": [1080, 1920],
     "16:9": [1920, 1080]
+  },
+  "calibration": {
+    "composition": {
+      "9:16": {"scale": 0.8, "x": 0.5, "y": 1.0},
+      "16:9": {"scale": 1.05, "x": 0.5, "y": 1.15}
+    }
   },
   "output": {
     "fps": 25,

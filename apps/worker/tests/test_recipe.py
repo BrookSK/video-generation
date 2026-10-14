@@ -13,6 +13,7 @@ RECIPE_PATH = MODELS_DIR / "RECIPE-v1.json"
 MANIFEST_PATH = MODELS_DIR / "MODEL_MANIFEST.json"
 DRAFT = json.loads(RECIPE_PATH.read_text(encoding="utf-8"))
 MANIFEST = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+FEMININA = DRAFT["tts"]["voices"]["feminina"]
 
 MEASUREMENT = {
     "audio_seconds": 30.2,
@@ -120,6 +121,68 @@ def test_module_entry_point_exit_codes():
         ),
         (_set("tts.voices.masculina", {"kind": "clone"}), "tts.voices.masculina.kind 'clone'"),
         (
+            _set("tts.voices.feminina", {"kind": "default"}),
+            "tts.voices.feminina.kind 'default' fora de reference",
+        ),
+        (
+            _drop("tts.voices.feminina.sha256"),
+            "tts.voices.feminina.sha256 precisa ter 64 hexadecimais",
+        ),
+        (
+            _set("tts.voices.masculina.sha256", "0" * 64),
+            "tts.voices.masculina: kokoro-voice-references/pm_alex.wav com sha256 "
+            + "0" * 64
+            + " não é arquivo derived do manifesto",
+        ),
+        (
+            _set("tts.voices.masculina", {**FEMININA, "path": "kokoro-voice-references/copia.wav"}),
+            "tts.voices precisam de referências distintas",
+        ),
+        (_drop("avatar.lora"), "avatar.lora ausente"),
+        (
+            _set("avatar.lora.component", "kokoro-voice-references"),
+            "avatar.lora.component 'kokoro-voice-references' não é componente model do manifesto",
+        ),
+        (
+            _set(
+                "avatar.lora.file",
+                "Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors",
+            ),
+            "avatar.lora.file 'Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors' "
+            "não é arquivo de lightx2v-lora no manifesto",
+        ),
+        (
+            _set("avatar.lora.sha256", "0" * 64),
+            "avatar.lora.sha256 '" + "0" * 64 + "' diferente do manifesto em lightx2v-lora",
+        ),
+        (_set("avatar.lora.scale", 0), "avatar.lora.scale precisa ser número finito e positivo"),
+        (
+            _set("avatar.sample_text_guide_scale", float("inf")),
+            "avatar.sample_text_guide_scale precisa ser número finito e positivo",
+        ),
+        (
+            _set("avatar.sample_audio_guide_scale", -2.0),
+            "avatar.sample_audio_guide_scale precisa ser número finito e positivo",
+        ),
+        (_set("avatar.sample_steps", 0), "avatar.sample_steps precisa ser inteiro >= 1"),
+        (
+            _set("avatar.quant", "fp8"),
+            "avatar.quant 'fp8' não roda na imagem do worker: a quantização compila a extensão "
+            "CUDA do optimum-quanto na primeira inferência e a imagem não tem nvcc",
+        ),
+        (
+            _set("avatar.negative_prompt", "hands, gestures"),
+            "avatar.negative_prompt precisa ser null: o generate_infinitetalk.py fixado (50aa0a94)",
+        ),
+        (
+            _set("calibration.composition.16:9.y", 0.4),
+            "calibration.composition.16:9.y 0.4 fora da faixa de 0.5 a 1.2",
+        ),
+        (
+            _drop("calibration.composition.9:16"),
+            "calibration.composition precisa ter exatamente os formatos 9:16, 16:9",
+        ),
+        (
             _set("limits.max_script_chars", 601),
             "limits.max_script_chars 601 acima de max_audio_seconds * chars_per_second (40 * 15",
         ),
@@ -151,23 +214,23 @@ def test_incoherent_recipe_is_refused(tmp_path, capsys, mutate, expected):
 
 
 def test_complete_frozen_recipe_is_accepted(tmp_path):
-    reference = {"kind": "reference", "path": "voices/feminina.wav", "sha256": "c" * 64}
-    recipe = _recipe(_frozen, _set("tts.voices.feminina", reference))
+    recipe = _recipe(_frozen)
 
     assert check_recipe(recipe, MANIFEST) == []
     loaded = load_recipe(_write(tmp_path, recipe), MANIFEST_PATH, require_frozen=True)
     assert loaded.pilot["formats"]["9:16"]["stages"]["render"]["vram_peak_mb"] == 21800
-    assert loaded.tts.voices["feminina"].sha256 == "c" * 64
+    assert loaded.tts.voices["feminina"].sha256 == FEMININA["sha256"]
+    assert loaded.avatar.lora == DRAFT["avatar"]["lora"]
+    assert json.loads(json.dumps(loaded.avatar.lora)) == DRAFT["avatar"]["lora"]
+    assert (loaded.avatar.sample_text_guide_scale, loaded.avatar.sample_audio_guide_scale) == (1, 2)
+    assert loaded.avatar.negative_prompt is None
+    assert loaded.calibration.composition == DRAFT["calibration"]["composition"]
 
 
 @pytest.mark.parametrize(
     ("mutate", "expected"),
     [
         (_set("worker_image.digest", None), "congelada: worker_image.digest"),
-        (
-            _set("tts.voices.feminina", {"kind": "reference", "path": "voices/f.wav"}),
-            "congelada: tts.voices.feminina de referência sem sha256",
-        ),
         (_set("pilot", None), "congelada: pilot precisa trazer as medições do piloto"),
         (_drop("pilot.formats.16:9"), "congelada: pilot.formats.16:9 sem medições"),
         (
