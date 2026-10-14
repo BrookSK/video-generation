@@ -18,6 +18,9 @@ O servidor precisa de Ubuntu 24.04 x86_64, GPU NVIDIA e acesso `sudo`.
 - Durante o download, o maior arquivo ocupa até 20 GB extras como `.part`.
 - Imagem `avatar-worker:pilot` e imagem CUDA base: reserve 40 GB no disco do Docker (`/var/lib/docker`).
 
+`models/` é excluído do contexto de build por `.dockerignore`; pesos e WAVs são
+fornecidos separadamente pelo volume `/models`, não embutidos na imagem.
+
 Reserve pelo menos 200 GB livres. Confira com:
 
 ```bash
@@ -278,10 +281,13 @@ quente.
 O manifesto ganhou `lightx2v-lora` (316.822.496 bytes) e `kokoro-82m` (cerca de
 330 MB, fontes das referências de voz). O código que baixa e confere os pesos
 roda dentro da imagem `avatar-worker:pilot`, e uma imagem anterior à P07 recusa
-o manifesto novo. Construa a imagem a partir do commit em uso e rode
-`models-pull.sh` como em *Pesos dos modelos*, abaixo: arquivos já conferidos são
-pulados e só os novos são baixados. A segunda execução precisa terminar com
-`0 baixado(s)`.
+o manifesto novo. Construa e publique a imagem do HEAD entregue na P07 sob a
+conta do cliente, conforme *Construir e registrar imagens reais*, antes do
+download e do piloto. Puxe o digest registrado e aponte `avatar-worker:pilot`
+para ele; `models-pull.sh` roda essa imagem. Arquivos já conferidos são pulados
+e só os novos são baixados. A segunda execução precisa terminar com
+`0 baixado(s)`. Preserve também os pesos fp8 do manifesto completo, embora o
+draft bf16 não os use.
 
 ### Custo: desligar não para a cobrança
 
@@ -319,8 +325,10 @@ decisão do cliente e não faz parte deste procedimento.
 
 ### Retomada com o volume preservado
 
-Criar a instância de novo volta a cobrar GPU e também precisa de autorização do
-cliente.
+Criar a instância de novo volta a cobrar GPU e precisa de autorização
+operacional atual do cliente. Confirme volume, localização, saldo e preço no
+console; o registro de volume detached e os aliases/IPs anteriores são
+históricos, não prova de disponibilidade ou acesso atual.
 
 1. No console, crie uma instância A100 80 GB na mesma localização do volume e
    selecione-o em **Add existing storage**; o volume precisa estar desanexado
@@ -338,12 +346,10 @@ cliente.
    ```
 
 4. **Host e GPU:** `bash infra/scripts/gpu-host-check.sh`.
-5. **Pesos:** `MODELS_DIR=/srv/avatar/models bash infra/scripts/models-pull.sh`
-   precisa terminar com `0 baixado(s)`.
-6. **Referências de voz:** rode a conferência de *Referências de voz* com
-   `REFS_MODELS=/srv/avatar/models`.
-7. **Imagem por digest:** a referência `nome@sha256:...` publicada na P06 precisa
-   aparecer em
+5. **Imagem atual por digest:** se só existir uma imagem anterior à P07,
+   construa/publique o HEAD entregue na P07 com autorização operacional e
+   registre o digest real antes de baixar pesos ou rodar o piloto. A referência
+   publicada precisa aparecer em
 
    ```bash
    docker image inspect --format '{{json .RepoDigests}}' avatar-worker:pilot
@@ -353,6 +359,12 @@ cliente.
    `avatar-worker:pilot`, com `WORKER_IMAGE` igual a essa referência:
    `docker pull "$WORKER_IMAGE"` e `docker tag "$WORKER_IMAGE" avatar-worker:pilot`.
    Não reconstrua a imagem para substituí-la.
+
+6. **Pesos:** `MODELS_DIR=/srv/avatar/models bash infra/scripts/models-pull.sh`.
+   Com os componentes novos, a primeira execução pode baixar arquivos; depois,
+   repita e exija `0 baixado(s)`.
+7. **Referências de voz:** copie os dois WAVs registrados e rode a conferência
+   de *Referências de voz* com `REFS_MODELS=/srv/avatar/models`.
 
 ## Supervisor e API em duas VPS
 

@@ -6,26 +6,29 @@ P06 é a verificação no ambiente final do cliente. Código compilado, testes l
 
 O cliente autoriza os materiais, a conexão entre as VPS, o domínio/registro de imagens e os avaliadores. O operador registra logs/metadados sem segredos; o avaliador humano fornece os vereditos. Custos continuam com o cliente, sem autorização implícita para contratar serviços ou automatizar ligar/desligar GPU.
 
-Ordem: acesso/host/pesos → piloto e avaliação → receita congelada → imagens/instalação → catálogo e jornadas reais → matriz/Instagram → autonomia/revogação. Qualquer pré-requisito ausente bloqueia o passo dependente, não autoriza material substituto.
+Ordem: acesso/host → imagem do HEAD entregue na P07 publicada por digest → pesos/referências e conexão privada → piloto e avaliação → receita congelada → instalação → catálogo e jornadas reais → matriz/Instagram → autonomia/revogação. Qualquer pré-requisito ausente bloqueia o passo dependente, não autoriza material substituto.
 
 ## SCN-001 — host, modelos e conexão privada (MH-07)
 
-1. Restabelecer SSH GPU autorizado e seguir [INSTALACAO.md](../operacao/INSTALACAO.md). No ambiente Sysbox do provedor, preservar driver/host físico e usar o runtime CDI já comprovado, revalidando o host real.
+1. Obter autorização operacional atual para retomar a A100 80 GB na Verda com o volume preservado `OS-fHuXBon4`, em FIN-01, seguindo [INSTALACAO.md](../operacao/INSTALACAO.md). O volume foi deixado detached em 2026-10-14 e continua cobrando storage; confirmar seu estado e saldo no console antes da retomada. Conferir IP e host key atuais por canal confiável antes de atualizar aliases SSH: o endereço antigo não comprova acesso atual. Preservar o driver do provedor; não reinstalá-lo automaticamente.
 2. Guardar saída de `gpu-host-check.sh`: Ubuntu 24.04, driver ≥560.28.03, Docker/Compose/toolkit, nome da GPU e VRAM vistos no container.
-3. Construir imagem no servidor/conta do cliente e registrar referência publicada com digest real, não `.Id`. Dentro dela, CUDA disponível nos runtimes TTS/avatar e imports `flash_attn`/`xformers`; política comercial do manifesto aprovada.
-4. Completar `models-pull.sh`: todos os arquivos/tamanhos/SHA-256 do manifesto, sem arquivo parcial tratado como peso válido. Reexecutar: exit 0 e zero downloads. Não reduzir o manifesto para caber no disco.
+3. Construir/publicar a imagem do HEAD entregue na P07 sob conta/registro do cliente, somente com autorização operacional, e registrar commit e referência `nome@sha256:...` real, não `.Id`. Puxar essa referência e apontar `avatar-worker:pilot` para ela, sem bind mounts de correções. Dentro dela, conferir CUDA nos runtimes TTS/avatar, imports `flash_attn`/`xformers` e política comercial do manifesto. Não reconstruir depois do piloto para substituir a imagem medida.
+4. Completar `models-pull.sh` com a imagem atual: todos os arquivos/tamanhos/SHA-256 do manifesto, incluindo LoRA lightx2v e fontes Kokoro, sem arquivo parcial tratado como peso válido. Copiar os WAVs registrados `pf_dora.wav`/`pm_alex.wav` para `/srv/avatar/models/kokoro-voice-references` e conferir tamanho/hash conforme o guia; componentes derivados não são baixados pelo script. Não regenerar no Linux e aceitar bytes diferentes silenciosamente. Reexecutar o download: exit 0 e zero downloads. Preservar o manifesto completo, inclusive pesos fp8 não usados pelo draft; a prova histórica dos 35 pesos não cobre os componentes novos.
 5. Com autorização e host key verificada, estabelecer túnel SSH ou rede privada autenticada CPU↔GPU. Supervisor autentica token em `/internal/v1`; banco não tem porta pública nem credenciais no worker. Pelo domínio público, `/internal/v1/claim` deve responder 404; ausência de credencial interna pública não basta para provar isolamento.
 
 Evidência: observação, logs de host/modelos/runtime e controles de rede, referências/digests e versão do manifesto. Não guardar senha/token/SSH privado.
 
 ## SCN-002 — piloto real e C1–C7 (MH-04 e MH-08)
 
-Use imagem autorizada com ombros visíveis e texto pt-BR com números, valores, telefone, nomes e negativas. Siga o script de piloto publicado, com inferência estritamente only-lo; nenhuma chamada de SaaS nem download durante a inferência. O supervisor precisa de HTTP interno, mas os subprocessos/piloto não recebem rede externa.
+Use imagens/cenários autorizados do cliente (BR-004), avatar com ombros visíveis e texto pt-BR com números, valores, telefone, nomes e negativas. Materiais sintéticos autorizados pela DEC-003 servem apenas para teste técnico, nunca para congelamento ou aceite. O piloto usa a imagem por digest conferida em SCN-001 e a fila declarativa `--queue`, sem rede: somente lo, sem chamada de SaaS nem download durante a inferência. O supervisor precisa de HTTP interno, mas os subprocessos/piloto não recebem rede externa.
 
-- Fala medida de 30 s, 9:16 e 16:9, execução fria e quente (`--runs 2`), mesma imagem e referência de voz autorizada ou padrão aprovado.
+- Receita de calibração bf16 sem quantização, LoRA lightx2v com escala 1.0, quatro passos, guia de texto 1.0 e de áudio 2.0. Referências `kind: reference`: feminina `pf_dora.wav`, masculina `pm_alex.wav`, com os hashes registrados; Chatterbox permanece o TTS.
+- Fala medida de 30 s nas duas vozes e nos dois formatos, 9:16 e 16:9, execução fria e quente (`--runs 2`).
 - Teste de 60 s em 9:16 antes de elevar limite, observando streaming/max_frame_num e deriva de cor.
 - Se a GPU tiver **pelo menos 48 GB**, testar 720p sem quantização. A L40S anteriormente observada tinha 46.068 MiB disponíveis; registre capacidade nominal e memória disponível separadamente. Não descarte o teste só por converter GB para GiB ou descontar memória reservada; em dúvida, execute e registre o resultado real. A condição não é uma aprovação antecipada de 720p.
 - Por etapa: tempo e pico de VRAM; perfil nativo/final, segundos de computação por segundo de vídeo, taxa de caracteres medida, texto/hash, versões/digests e interfaces de rede. FFprobe confere perfil e duração real.
+- Ouvir as duas vozes e registrar diferenciação perceptiva; examinar mãos inventadas, objetos e artefatos de borda em 16:9. Parâmetros de composição/prompt configurados não são prova de qualidade.
+- Obter decisão humana explícita sobre qualidade e viabilidade dos tempos medidos antes de congelar. O teste sintético frio anterior (~100 s de computação por segundo de vídeo) é referência histórica, não aprovação de desempenho.
 
 | Critério | Avaliação exigida |
 |---|---|
@@ -41,7 +44,7 @@ Cliente/avaliador registra cada veredito em `docs/models/PILOTO-v1.md`, incluind
 
 ## Release guard e instalação (MH-01 e início do MH-02)
 
-1. Resolver domínio/HTTPS e registro de imagens sob controle do cliente. Construir/publicar imagens de API/painel/worker com o commit e receita aprovados; preencher ambiente privado com referências reais.
+1. Resolver domínio/HTTPS e registro de imagens sob controle do cliente. Construir/publicar API e painel com o commit aprovado; manter o worker no mesmo digest publicado e medido em SCN-001/002, sem reconstrução após freeze. Preencher ambiente privado com referências reais.
 2. Executar `bash infra/scripts/check-release.sh`: ambas composições válidas, imagens sem build ativo/latest e com digest, todas variáveis no `.env.example`, documentos presentes e segredos privados seguros. Este guard valida configuração, não conteúdo da imagem nem aprovação humana.
 3. Executar instalação por papel seguindo só INSTALACAO.md, repetir em clone/diretório limpo, registrar commit/digests e preservar volumes ativos. Confirmar HTTPS externo/certificado, login/logout e isolamento banco/internal. Na CPU só API/PostgreSQL/Caddy; na GPU somente worker, sem banco/storage direto.
 4. Executar `backup.sh` no cliente e exercício de recuperação isolado conforme [OPERACAO.md](../operacao/OPERACAO.md). Evidência de dump/tar/manifest/COMPLETE e comparação de banco/mídia; não restaurar sobre instalação ativa.
@@ -73,6 +76,6 @@ Depois o operador cliente revoga todos acessos temporários do desenvolvedor: SS
 
 ## Estado de bloqueio e fechamento
 
-Atualmente, SSH GPU recusado, pesos/digest/piloto completos não verificados e material/domínio/equipe final ausentes impedem execução dos cenários remotos. Não preencher observações aprovadas nem congelar receita para contornar isso. Registre o pré-requisito exato e retome da primeira tarefa elegível quando houver acesso/material.
+P07 está concluída localmente; P06 retoma em T05. O histórico Verda comprova CUDA, persistência e 35 pesos na imagem anterior, não a imagem/componentes atuais da P07. Faltam autorização operacional atual para compute/publicação, confirmação de acesso/IP/host key, digest atual, pesos/referências novamente conferidos, rede privada CPU↔GPU e domínio/HTTPS. Piloto, materiais autorizados e equipe/avaliador seguem pré-requisitos dos passos dependentes. Não preencher observações aprovadas nem congelar receita para contornar ausências; registrar o bloqueio concreto e retomar da primeira tarefa elegível. Não usar o relato antigo de SSH recusado no Sysbox como diagnóstico do estado atual da Verda.
 
 Concluir P06 exige MH-01–MH-08 reais, revisão independente atual e nenhum gap material. Depois construir/identificar RC e executar regressão integrada/homologação de release. Não declare sistema final entregue com apenas preparação local concluída.

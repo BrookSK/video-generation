@@ -11,3 +11,4 @@
 **/.env
 infra/compose/.env
 data
+models
