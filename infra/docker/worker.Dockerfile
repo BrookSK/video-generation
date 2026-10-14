@@ -94,6 +94,13 @@ RUN set -- $(.venv/bin/python -c "import json; c = {c['id']: c for c in json.loa
     && test "$(git -C /opt/infinitetalk rev-parse HEAD)" = "$2" \
     && rm -rf /opt/infinitetalk/.git
 
+# transformers 4.55 recusa config.output_attentions com SDPA, e o Wav2Vec2Model do
+# InfiniteTalk liga essa flag no forward. Só o encoder de áudio passa a usar atenção
+# eager; o grep garante que o patch casou com o código do commit fixado.
+RUN sed -i 's/Wav2Vec2Model.from_pretrained(wav2vec, local_files_only=True)/Wav2Vec2Model.from_pretrained(wav2vec, local_files_only=True, attn_implementation="eager")/' \
+        /opt/infinitetalk/generate_infinitetalk.py \
+    && grep -q 'attn_implementation="eager"' /opt/infinitetalk/generate_infinitetalk.py
+
 # Instalação editável: o piloto acha runtimes/ relativo a src/.
 COPY apps/worker ./
 RUN uv sync --frozen --no-dev

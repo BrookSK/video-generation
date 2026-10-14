@@ -16,6 +16,9 @@ from typing import Any
 
 FORMATS = ("9:16", "16:9")
 OFFLINE_ENV = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+# get_attn_map_with_target do InfiniteTalk usa @torch.compile; o Triton precisa de compilador C
+# em tempo de execução, que a imagem não tem. Com o dynamo desligado a função roda em eager.
+SUBPROCESS_ENV = {**{name: "1" for name in OFFLINE_ENV}, "TORCHDYNAMO_DISABLE": "1"}
 REQUEST_PATHS = ("image", "audio", "models_dir", "infinitetalk_dir", "out_dir")
 RECIPE_FIELDS = ("size", "sample_steps", "mode", "motion_frame", "max_frame_num", "prompt")
 
@@ -145,7 +148,7 @@ def run(request_path: Path, result_path: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
     script = Path(request["infinitetalk_dir"]) / "generate_infinitetalk.py"
-    env = dict(os.environ, **{name: "1" for name in OFFLINE_ENV})
+    env = dict(os.environ, **SUBPROCESS_ENV)
     # cwd em out_dir: o InfiniteTalk grava save_audio/ relativo ao diretório atual.
     completed = subprocess.run(
         [sys.executable, str(script), *build_args(request)],

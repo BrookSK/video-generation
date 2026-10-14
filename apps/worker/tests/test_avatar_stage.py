@@ -29,7 +29,10 @@ FAKE_GENERATE = textwrap.dedent(
     record = {
         "argv": args,
         "cwd": os.getcwd(),
-        "env": {k: os.environ.get(k) for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")},
+        "env": {
+            k: os.environ.get(k)
+            for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "TORCHDYNAMO_DISABLE")
+        },
         "input": json.load(open(opts["--input_json"], encoding="utf-8")),
     }
     json.dump(record, open(os.path.join(os.getcwd(), "fake_call.json"), "w"))
@@ -88,7 +91,12 @@ def test_render_produces_native_video_with_offline_environment(tmp_path):
 
 
     call = json.loads((out / "fake_call.json").read_text())
-    assert call["env"] == {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+    # TORCHDYNAMO_DISABLE: o @torch.compile do InfiniteTalk exige compilador C, ausente na imagem.
+    assert call["env"] == {
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "TORCHDYNAMO_DISABLE": "1",
+    }
     assert Path(call["cwd"]).resolve() == out.resolve()
 
     result = json.loads(result_path.read_text())
