@@ -12,6 +12,7 @@ import pytest
 from PIL import Image
 
 from avatar_worker import video
+from avatar_worker.canvas import compose_canvas
 from avatar_worker.finalize import probe_output
 from avatar_worker.video import GenerationFailure, VideoRuntime, generate_video
 
@@ -114,8 +115,15 @@ def test_pipeline_preserves_canvas_audio_and_manifest_of_real_files(
 ):
     payload, inputs, work, runtime = video_case
     payload["aspect_ratio"] = aspect
+    # A calibração do piloto na receita difere da cena e não muda o job do produto.
+    calibration = payload["recipe_spec"]["calibration"]["composition"]
+    calibration[aspect] = {"scale": 1.2, "x": 0.2, "y": 1.2}
 
     result = generate(video_case)
+
+    with Image.open(inputs["avatar"]) as avatar, Image.open(work / "canvas.png") as canvas:
+        scene = compose_canvas(avatar, "#1f2937", payload["composition"][aspect], size)
+        assert canvas.tobytes() == scene.tobytes()
 
     profile = probe_output(result.files["final.mp4"])
     assert (profile["width"], profile["height"]) == size
