@@ -280,6 +280,15 @@ A prova T05 de 2026-10-14 pertence ao candidato anterior `ec4fad2d…`, fonte
 referências de voz e claim/presença/upload em preflight privado isolado.
 Não atribuir essa prova histórica à imagem nova.
 
+Preview real D001 em 2026-10-15: feminina/escritório/9:16, uma execução fria,
+25,96 s (não 30 s), 649 frames, H.264 1080×1920/25 fps e AAC 48 kHz.
+O avatar levou 2304,575 s, pico 49328 MiB; total computado 2363,666 s
+(91,05 s de computação por segundo de vídeo). Rede somente `lo`, Perth detectado.
+MP4 copiado e SHA-256 conferido, FFprobe e grade visual observados. Isso não
+aprova sincronia/fala literal nem o desempenho; repetição, outras vozes/formatos,
+60 s, 720p e avaliação C1–C7 seguem pendentes. A GPU e o clone temporários foram
+excluídos após a cópia; o volume original permaneceu detached.
+
 `RECIPE-v1.json` segue `draft`, sem aprovação humana ou congelamento.
 DEC-005 autoriza os seis materiais existentes; domínio HTTPS público, túnel
 definitivo restrito e aceite permanecem requisitos das etapas seguintes.
