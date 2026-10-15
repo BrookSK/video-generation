@@ -247,6 +247,49 @@ voz/vídeo prontos. Modelos na conta do cliente descrevem local e controle, não
 fornecimento de um modelo próprio. O Whisper foi apenas transcritor diagnóstico;
 os áudios desta rodada foram sintetizados pelo Chatterbox.
 
+## Pesquisa posterior de naturalidade
+
+Após nova reprovação de voz robótica, foi executada uma investigação em três
+frentes: práticas de voz, movimento de avatar e avaliação audiovisual. Código,
+papers e demos dos autores foram confrontados com os insumos e comandos locais.
+A [síntese com fontes e resultados](../research/P06-NATURALIDADE.md) separa fatos,
+hipóteses, ensaios realizados e testes ainda dependentes de GPU.
+
+Foram gerados seis WAVs adicionais em ambiente local isolado: Chatterbox com
+referência original/sem saudação; Qwen3-TTS Base 1.7B bf16 com as mesmas duas
+referências, mais uma demo masculina e o stress numérico. O controle Chatterbox
+reproduziu o WAV A anterior byte a byte. Os doze ASRs desta rodada preservam
+divergências: preço/telefone continuam sem aprovação, e duas demos têm diferenças
+de transcrição a conferir na escuta. Nenhum score acústico aprovou naturalidade.
+
+Um controle adicional gerou o mesmo texto diretamente no Kokoro `pf_dora`,
+sem clonagem posterior: 7,125 s, PCM16/24 kHz, saída zero e sem clipping.
+Não houve ASR novo nem audição do agente nessa subtarefa. A API não fornece
+EOS, marcado como não aplicável. O controle também está disponível com ganho
+constante na página, separado da comparação principal; não há aceite novo.
+
+As quatro opções femininas são apresentadas com rótulos neutros e ganho constante
+para volume comum, sem mudar duração/velocidade. A página privada é
+`p06-pesquisa-naturalidade-20261015/revisao.html`. Os bytes ouvidos têm hashes
+próprios; não são declarados idênticos aos WAVs brutos. Não houve escolha humana
+registrada nesta rodada. Qwen não foi integrado ao worker nem ao manifesto de
+produção; seus WAVs de experimento não têm watermark Perth.
+
+O áudio do MP4 antigo foi comparado ao WAV TTS: lag estimado zero e correlação
+0,999974. Isso verifica a preservação do áudio pela finalização. Um teste SyncNet
+posterior, com controles de atraso conhecidos e três janelas, estimou −80 ms
+no original. A cópia diagnóstica com vídeo atrasado em dois quadros passou a
+offset zero nas três janelas. O AAC decodificado é idêntico, sem corte da fala.
+Os controles ±200/400 ms foram recuperados antes e depois. Consulte
+[o ensaio completo](../research/P06-SYNCNET-ENSAIO.md). Isso não gera movimento
+novo nem representa sincronismo perceptivo aprovado.
+
+O par privado de scheduler passou em três checks de preparo: somente o argumento
+`sample_shift` muda entre 7/2, com seed 42, WAV e imagem idênticos. Não houve
+inferência desse par. O novo acesso ao console confirmou US$ 0,38 aproximadamente
+às 16:16 UTC; A100 de 80 GB e os SKUs H100 consultados estavam indisponíveis.
+Nenhum compute ou recarga foi criado nessa consulta.
+
 ## Ordem econômica de validação
 
 Usar o [pacote de calibração](../models/calibration/README.md). Cada comparação
