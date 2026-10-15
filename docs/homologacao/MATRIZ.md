@@ -6,10 +6,10 @@
 
 - GPU acessível, host/runtimes reais aprovados e todos os pesos conferidos por tamanho/SHA-256; segunda execução do downloader sem downloads.
 - Imagem real do worker identificada por digest de publicação, piloto C1–C7 aprovado e receita frozen carregada na API.
-- Duas fotos autorizadas, A1 com voz feminina e A2 com voz masculina, ombros visíveis; quatro cenários S1–S4 autorizados e enquadrados nos dois formatos. IDs reais, nomes e autorização devem ser registrados antes da execução. Voz é referência autorizada ou padrão do checkpoint aprovado, nunca material sem licença.
+- Dois avatares autorizados, A1 com voz feminina e A2 com voz masculina, ombros visíveis; quatro cenários S1–S4 autorizados e enquadrados nos dois formatos. DEC-005 autoriza os materiais existentes em `~/Developer/video-generation-amostras/materiais-sinteticos/`: A1 feminino, A2 masculino; S1 escritório, S2 estúdio, S3 sala, S4 loja. Proveniência/prompts/hashes acompanham as entradas privadas do piloto; registrar IDs reais e autorização no cadastro antes da execução. DEC-004 exige referências sintéticas distintas `kind: reference`: `pf_dora.wav` e `pm_alex.wav`, com licença e hashes do manifesto; não voz padrão.
 - Instalação do cliente com HTTPS e túnel autenticado, API/banco/storage na CPU, worker sem acesso ao banco. Cliente e avaliador humano presentes.
 
-A última observação de acesso à GPU foi conexão SSH recusada em `117.18.102.52:30108`. Não há ainda amostras reais aprovadas, pesos completos conferidos ou domínio/registro de imagens final resolvidos. Reabrir o acesso não substitui essas verificações.
+A T05 comprovou na A100 80 GB o candidato anterior publicado por digest, CUDA, 40 arquivos de modelos e referências de voz; isso não aprova as amostras desta matriz. DEC-005 autoriza GPU e os seis materiais, superando a restrição de insumos DEC-003. A retomada de 2026-10-15 criou a GPU/clone temporários e corrigiu D001 (TTS sem EOS era publicado como sucesso), com RED/GREEN real. O candidato atual e seus limites estão em INSTALACAO.md; não há veredito humano, receita frozen ou matriz executada. Domínio/instalação final continuam sujeitos à prova real.
 
 ## Combinações obrigatórias
 

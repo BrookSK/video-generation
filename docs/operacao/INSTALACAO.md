@@ -187,10 +187,14 @@ restabelecer o acesso GPU, confira o volume e a imagem, depois reexecute
 arquivos existentes e baixa novamente os ausentes ou inválidos; não dispense
 essa conferência.
 
-Para as provas de piloto/congelamento na P06 falta uma imagem de pessoa, com
-ombros visíveis, e o registro de autorização de uso. A foto pública usada na
-P03 era uma fixture, não um avatar autorizado do cliente. O avaliador precisa
-examinar as amostras antes de congelar a receita. Não invente sua aprovação.
+Na retomada P06 de 2026-10-14, DEC-005 autoriza reutilizar os dois avatares e
+quatro cenários sintéticos existentes em
+`~/Developer/video-generation-amostras/materiais-sinteticos/`, com prompts e
+hashes registrados. Essa decisão supera a restrição de insumos da DEC-003;
+não faltam novas fotos nem nova autorização desses materiais para o piloto.
+A foto pública da P03 continua sendo fixture. O avaliador precisa examinar as
+novas amostras antes de congelar a receita; autorização de uso não é aprovação
+de qualidade, tempos ou assinatura humana.
 
 O usuário selecionou **“Autorizar o ajuste do Astra”**, ciente do risco de
 retrabalho. A decisão autoriza desenvolvimento real local da P04/P05 antes da
@@ -250,31 +254,35 @@ dependem de autorização do cliente; exclusão e retomada estão descritas abai
 Na instância, rode `bash infra/scripts/gpu-host-check.sh` e instale, pelos
 passos acima, só o que ele apontar como ausente.
 
-### Candidato P06 publicado e verificado (2026-10-14)
+### Candidato P06 publicado e verificado (2026-10-15)
 
 O worker foi construído em Linux amd64 a partir de
-`d031c8763303cd5fa2fbf303bf57d6a5bf66d880` (runtime entregue na P07 e preparação
-local da P06) e publicado no registro do cliente. Use a identidade verificada,
-sem trocar pelo Image ID ou por uma reconstrução:
+`50fc974ceadff502694522e77a5704e2cbed4c8d` (correção D001 do TTS) e publicado
+no registro do cliente. Use a identidade verificada, sem trocar pelo Image ID
+ou por uma reconstrução:
 
 ```bash
-WORKER_IMAGE=vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker@sha256:ec4fad2d214958e9100d1a145db924b583b728a3946bc1d426ffd16d4771beaa
+WORKER_IMAGE=vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker@sha256:f2814d283009ef7ebcb941367b531631e5008623ef2667cc92eadd8d1c4f06ff
 docker pull "$WORKER_IMAGE"
 docker tag "$WORKER_IMAGE" avatar-worker:pilot
 ```
 
-Essa imagem passou o smoke CUDA dos dois runtimes, imports do avatar e
-conferência das duas referências de voz na A100 80 GB. `models-pull.sh`,
-executado dentro dela, terminou com zero downloads e 40 arquivos conferidos.
-Claim, presença persistida e uploads de preparação foram exercitados pelo
-supervisor real num preflight isolado entre as VPS, com dados sintéticos de
-teste, token privado e proxy HTTPS de CA interna bloqueando `/internal/*`.
+O candidato D001 foi puxado por digest na A100 80 GB e executou o TTS real sem
+rede. Uma geração sem EOS foi recusada antes de decodificar/publicar; a mesma
+reprodução publicava áudio incompleto no candidato anterior. O manifesto registra
+a política v3 aplicada ao Chatterbox 0.1.7, com hashes do patch e do aplicador.
+Isso não prova literalidade, qualidade humana nem capacidade de fala de 60 s:
+o orçamento de 1000 tokens permanece e uma amostra masculina real foi recusada
+por esgotá-lo sem EOS. Não aumentar o orçamento silenciosamente.
 
-Isso não é piloto de voz/animação nem instalação final: `RECIPE-v1.json` segue
-`draft`, sem medições/aprovação humana ou congelamento. O domínio HTTPS público,
-o túnel definitivo restrito, os materiais autorizados e o aceite continuam
-pré-requisitos das etapas seguintes. O preflight não constitui o pacote inicial
-do cliente e suas credenciais/dados temporários são descartados ao encerrar.
+A prova T05 de 2026-10-14 pertence ao candidato anterior `ec4fad2d…`, fonte
+`d031c876…`: CUDA dos dois runtimes, 40 arquivos conferidos sem downloads,
+referências de voz e claim/presença/upload em preflight privado isolado.
+Não atribuir essa prova histórica à imagem nova.
+
+`RECIPE-v1.json` segue `draft`, sem aprovação humana ou congelamento.
+DEC-005 autoriza os seis materiais existentes; domínio HTTPS público, túnel
+definitivo restrito e aceite permanecem requisitos das etapas seguintes.
 
 ### Perfil da receita draft
 
@@ -352,14 +360,21 @@ decisão do cliente e não faz parte deste procedimento.
 
 ### Retomada com o volume preservado
 
-Criar a instância de novo volta a cobrar GPU e precisa de autorização
-operacional atual do cliente. Confirme volume, localização, saldo e preço no
-console; o registro de volume detached e os aliases/IPs anteriores são
-históricos, não prova de disponibilidade ou acesso atual.
+DEC-005 já autoriza criar a GPU e usar os seis materiais existentes; não repetir
+esses pedidos. Após recusa de capacidade em FIN-01, a DEC-006 autoriza esta
+janela em A100 80 GB **spot FIN-03**, com o clone `P06-piloto-FIN03` (250 GiB)
+do volume original `OS-fHuXBon4`, que deve permanecer preservado em FIN-01.
+Usar apenas o saldo existente, sem recarga, mantendo reserva de **US$1**.
+Salvar as amostras/evidências e executar `sync` antes de excluir somente a nova
+instância `avatar-p06-pilot-ec4fad2` e o clone temporário. Não excluir o original
+nem publicar externamente. Confirmar estado, preço, IP e host key no console;
+aliases/IPs anteriores não provam acesso atual.
 
-1. No console, crie uma instância A100 80 GB na mesma localização do volume e
-   selecione-o em **Add existing storage**; o volume precisa estar desanexado
-   ([Set up a CPU or GPU instance](https://docs.verda.com/cpu-and-gpu-instances/set-up-a-gpu-instance/)).
+1. Para esta janela, usar o clone desanexado `P06-piloto-FIN03` como volume OS
+   da A100 spot em FIN-03, com **No deletion / Keep all storage** em caso de
+   interrupção. A instância criada tem ID `bde3697c-2d12-499a-95cd-77c435c2fc78`;
+   o clone, `e5f8c4cb-b83a-4bce-83d6-9e77b6b6f028`. Não anexar/excluir o
+   original para substituir essa execução.
 2. **IP e host key:** anote o IP novo e atualize o SSH config do operador. No
    primeiro acesso, compare o fingerprint oferecido com o registrado. Se mudou,
    confirme-o por um canal confiável antes de aceitar; nunca desative a
@@ -654,8 +669,11 @@ ferramentas implementadas na P02 e na P07 não equivalem a essa execução ou ao
 aceite.
 
 O piloto roda com `network_mode: none`, a GPU reservada e `/models` só leitura.
-A receita e o manifesto usados são os de `/app/docs/models`, copiados para a imagem no `build`.
-Depois de alterar `docs/models`, construa a imagem de novo.
+A receita corrente e o manifesto são dados externos em `/pilot/in:ro`, com
+hashes registrados por execução. Atualizar esses dados durante a calibração
+não exige reconstruir a imagem. Preserve o digest candidato medido e nunca
+monte código para alterar seu runtime; as instruções de build inicial não
+substituem este caminho de retomada.
 
 O piloto recebe uma fila de amostras de calibração em JSON. Cada amostra combina
 avatar, fundo, fala, voz e formato; uma amostra sozinha é uma fila de um item.
@@ -672,9 +690,12 @@ sudo cp fila.json avatar-a.png avatar-b.png cenario.png fala-30s.txt /srv/avatar
 sudo chown -R 10001:10001 /srv/avatar/pilot
 ```
 
-As imagens dos avatares e dos cenários precisam ser autorizadas pelo cliente;
-materiais sintéticos valem só para teste. Avatar sem transparência passa pelo
-recorte BiRefNet antes da composição. As falas ficam em arquivos UTF-8.
+As imagens precisam ser autorizadas pelo cliente. DEC-005 autoriza nesta P06
+os dois avatares e quatro cenários sintéticos existentes, com proveniência,
+prompts e hashes, superando a restrição de insumos DEC-003. Isso não fornece
+veredito humano de qualidade ou desempenho. Avatar sem transparência passa
+pelo recorte BiRefNet antes da composição. As falas ficam em arquivos UTF-8;
+nomes como `aprox30s` não substituem a duração medida do WAV real por voz.
 
 ### Fila de calibração
 
@@ -729,30 +750,59 @@ Caminhos relativos partem da pasta do `fila.json`. O piloto confere a fila
 inteira antes de executar: com qualquer problema, lista todos e sai com código 2
 sem rodar nenhuma amostra.
 
-Passe o digest da imagem em `WORKER_IMAGE_DIGEST` para que os relatórios o registrem:
+Execute o candidato publicado por digest, sem rebuild nem montagem de código.
+A receita corrente e o manifesto são dados externos em `/pilot/in:ro`;
+os snapshots anteriores de calibração não identificam o candidato D001.
+Copie a pasta privada `p06-piloto-atual/in/` preparada para
+`/srv/avatar/pilot/p06-current/in/`. O comando abaixo descreve o lote completo:
+quatro amostras × duas execuções não cabem na janela de saldo da DEC-006 pelos
+tempos históricos. Não iniciar esse lote autonomamente: o coordenador limita
+as amostras à reserva, salva resultados e encerra os recursos temporários.
+Os gates não executados permanecem pendentes. O comando não cria instância,
+não baixa modelos e não contém credenciais.
 
 ```bash
+export WORKER_IMAGE=vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker@sha256:f2814d283009ef7ebcb941367b531631e5008623ef2667cc92eadd8d1c4f06ff
 export MODELS_DIR=/srv/avatar/models
-export PILOT_DIR=/srv/avatar/pilot
-docker compose -f infra/compose/docker-compose.pilot.yml run --rm \
-  -e WORKER_IMAGE_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' avatar-worker:pilot)" \
-  pilot \
-  --recipe /app/docs/models/RECIPE-v1.json \
-  --manifest /app/docs/models/MODEL_MANIFEST.json \
+export PILOT_DIR=/srv/avatar/pilot/p06-current
+docker run --rm --pull=never --gpus device=0 --network none --user 10001:10001 \
+  -e WORKER_IMAGE_DIGEST="$WORKER_IMAGE" \
+  --mount type=bind,src="$MODELS_DIR",dst=/models,readonly \
+  --mount type=bind,src="$PILOT_DIR/in",dst=/pilot/in,readonly \
+  --mount type=bind,src="$PILOT_DIR/out",dst=/pilot/out \
+  --entrypoint python "$WORKER_IMAGE" -m avatar_worker.pilot \
+  --recipe /pilot/in/RECIPE-d001.json \
+  --manifest /pilot/in/MODEL_MANIFEST-d001.json \
   --models /models \
-  --queue /pilot/in/fila.json \
+  --queue /pilot/in/fila-aprox30s-4amostras.json \
   --runs 2 \
-  --out /pilot/out/calibracao-01
+  --out /pilot/out/calibracao-30s-01
 ```
 
-O serviço `pilot` não tem rede (`network_mode: none`). `--out` precisa ser uma
-pasta nova ou vazia; pasta já usada é recusada com código 2. Com `--runs 2`,
-cada amostra roda duas vezes: a primeira é marcada fria e a segunda quente.
-Pelos números do teste de 2026-10-14 (cerca de 100 s de GPU por segundo de
-fala), cada execução com 30 s de fala ocupa a A100 por cerca de 50 min: some as
-execuções da fila antes de rodar.
+O contêiner não tem rede (`--network none`); os relatórios precisam registrar
+somente `lo`. `--out` precisa ser pasta nova ou vazia; pasta usada é recusada
+com código 2. `--runs 2` rotula a primeira execução de cada amostra como fria
+e a segunda como quente, mas ambos os estágios iniciam subprocessos novos e
+recarregam modelos em cada execução. Não há modelos residentes nem controle
+de cache frio do host: interpretar como repetição sequencial com recarga,
+não prova de ganho por inferência quente residente. O recorte é feito uma vez
+por amostra, fora dos runs. Pelos números históricos (~100 s de GPU por segundo
+de fala), uma execução de 30 s poderia ocupar cerca de 50 min; não é medição
+do candidato atual nem garantia. Some as execuções antes de rodar.
 
-As amostras rodam na ordem da fila. Em `/srv/avatar/pilot/out/calibracao-01`:
+Para o ensaio longo separado, use `RECIPE-calibracao-60s-d001.json`,
+`fila-aprox60s-vertical.json` e saída `/pilot/out/calibracao-60s-01`, mantendo
+`--runs 2`. O draft de calibração permite até 60 s/1500 frames; isso não eleva o
+limite de produção nem prova 60 s de fala. Se o WAV exceder o limite, registre
+a falha e ajuste o texto com novo hash antes de reamostrar. Na A100 80 GB,
+o teste 720p se aplica: use `RECIPE-calibracao-720p-d001.json`, a fila de quatro
+amostras e saída `/pilot/out/calibracao-720p-01`, sem quantização, `--runs 2`.
+Os buckets são 704×1280 e 1280×704; a exportação permanece Full HD. A variante
+mantém os pesos Wan 480p existentes conforme o adaptador, não inventa um
+checkpoint 720p. Capacidade e qualidade só são demonstradas pela execução.
+
+As amostras rodam na ordem da fila. Em `$PILOT_DIR/out/calibracao-30s-01`
+(`/srv/avatar/pilot/p06-current/out/calibracao-30s-01` nesta janela):
 
 - `index.json`: a fila na ordem declarada, com o status de cada amostra (`ok`
   ou `failed`), o SHA-256 da fila e da receita e os comandos de TTS, avatar e
