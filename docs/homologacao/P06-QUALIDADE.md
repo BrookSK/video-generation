@@ -271,9 +271,12 @@ constante na página, separado da comparação principal; não há aceite novo.
 As quatro opções femininas são apresentadas com rótulos neutros e ganho constante
 para volume comum, sem mudar duração/velocidade. A página privada é
 `p06-pesquisa-naturalidade-20261015/revisao.html`. Os bytes ouvidos têm hashes
-próprios; não são declarados idênticos aos WAVs brutos. Não houve escolha humana
-registrada nesta rodada. Qwen não foi integrado ao worker nem ao manifesto de
-produção; seus WAVs de experimento não têm watermark Perth.
+próprios; não são declarados idênticos aos WAVs brutos. O retorno humano posterior considerou a amostra 2 próxima em naturalidade, mas
+com início percebido como português de Portugal, e a 4 razoável, ainda precisando
+melhorar. Nenhuma foi aprovada. A [investigação de sotaque](../research/P06-SOTAQUE.md)
+confere a cadeia pt-BR e testa outra forma de condicionamento. Qwen não foi
+integrado ao worker nem ao manifesto de produção; seus WAVs de experimento não
+têm watermark Perth.
 
 O áudio do MP4 antigo foi comparado ao WAV TTS: lag estimado zero e correlação
 0,999974. Isso verifica a preservação do áudio pela finalização. Um teste SyncNet
@@ -289,6 +292,40 @@ O par privado de scheduler passou em três checks de preparo: somente o argument
 inferência desse par. O novo acesso ao console confirmou US$ 0,38 aproximadamente
 às 16:16 UTC; A100 de 80 GB e os SKUs H100 consultados estavam indisponíveis.
 Nenhum compute ou recarga foi criado nessa consulta.
+
+## Reteste dirigido ao sotaque
+
+O retorno sobre sotaque motivou [nova pesquisa e rastreio](../research/P06-SOTAQUE.md).
+Não foi encontrada troca acidental de pesos/locale/rótulos para pt-PT. O Qwen Base
+usado na amostra 2 recebe português genérico e não encaminha instruções de dialeto
+pelo ramo ICL do runtime escolhido. O fine-tune Chatterbox brasileiro já estava
+instalado. O frontend brasileiro correto, sozinho, não aprova a pronúncia percebida.
+
+Foram gerados dois WAVs locais com Qwen VoiceDesign 1.7B bf16: descrição geral
+versus a mesma descrição acrescida de pedido explícito de sotaque brasileiro.
+Sem referência Kokoro, mantendo texto/seed/pesos/sampler do par iguais. Os dois
+concluíram com EOS observado, sem clipping; durações de 9,04 e 9,52 s. Os quatro
+ASRs preservam pequenas divergências de artigos e não classificam sotaque.
+
+A nova página `p06-sotaque-20261015/revisao.html` apresenta duas opções A/B com
+volume comum e mantém as antigas 2/4 para comparação. Os arquivos têm hashes
+próprios. O usuário ouviu as duas opções e respondeu “Ainda nenhuma atende”.
+Ambas ficam reprovadas; a coleta não demonstrou correção de sotaque. VoiceDesign não foi
+integrado à produção e não houve novo render ou consumo de compute Verda.
+
+O usuário pediu uma revisão ampla por Astra; foi chamado o modelo Astra com
+reasoning medium. O [parecer](../research/P06-ASTRA-NATURALIDADE.md) recomenda um
+controle com referência humana, sem atribuir causa única ao sotaque ou ao motor.
+O controle N preservou a receita Qwen Base/H e trocou somente referência e sua
+transcrição por gravação Cadu/OHF, publicada para TTS sob CC0. Uma saída de
+9,84 s concluiu com EOS e sem clipping; large recuperou a sequência esperada,
+small manteve a divergência “aproxima”/“a próxima” já presente em H.
+
+A página `p06-sotaque-20261015/controle-referencia/revisao.html` mostra a fonte
+humana e a comparação masculina H/N sob rótulos C/D, com volume comum.
+Ainda não há veredito humano sobre esse controle, e ele não aprova a voz feminina.
+A mudança de locutor/duração/conteúdo da referência impede chamar esse par de
+isolamento exclusivo de “humano versus sintético”. Nenhum novo render foi feito.
 
 ## Ordem econômica de validação
 
