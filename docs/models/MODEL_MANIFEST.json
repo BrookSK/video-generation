@@ -273,7 +273,33 @@
           "size": 108543
         }
       ],
-      "version": "0.1.7"
+      "version": "0.1.7",
+      "provenance": {
+        "runtime_variant": "0.1.7+local.v3-policy",
+        "base_revision": "59bc590b3cad826e5d5987745bf6844627a21ad5",
+        "patch": {
+          "path": "infra/docker/chatterbox-v3-policy.patch",
+          "sha256": "be202b1dd49c65a18a3198693991d0097f66569904419273ccb3a9b7ea512b2e",
+          "size": 13316,
+          "upstream_revision": "3f35dfc8fbe63e5b29793289dc68f1875bb317a5",
+          "source": "https://github.com/resemble-ai/chatterbox/commit/3f35dfc8fbe63e5b29793289dc68f1875bb317a5",
+          "scope": "Somente hunks T3/backend e remoção de alignment_stream_analyzer.py; sem mtl_tts.py, seleção de pesos, trim, top_p ou orçamento."
+        },
+        "applier": {
+          "path": "infra/docker/patch_chatterbox.py",
+          "sha256": "0281bc5eba82ced273c782ec77ea759cdf7c7b04c40887dc2155449912324557"
+        },
+        "base_files": {
+          "models/t3/t3.py": "6d8be2af8fa203e755d5316d817b73ca8e2a385204b8e4efe92c6446595c71b1",
+          "models/t3/inference/t3_hf_backend.py": "a87ae044d9777589ac531360bb3f9096adfe724cf84b92ca6f4306f405de61dd",
+          "models/t3/inference/alignment_stream_analyzer.py": "d8430efa92aedb8e59b782c1d299fe7238570eecea9d293c0981a5ee2e82c8c7"
+        },
+        "runtime_policy": {
+          "repetition_penalty": 1.2,
+          "completion": "EOS terminal no retorno bruto [1, N] não vazio antes do decoder; sem EOS não publica sucesso.",
+          "attention": "Remoção integral também retira hooks/configuração eager do analisador e usa output_attentions=False nos dois forwards; difere do braço diagnóstico C."
+        }
+      }
     },
     {
       "id": "chatterbox-multilingual-pt-br",

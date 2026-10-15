@@ -10,6 +10,7 @@ import types
 import wave
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -347,3 +348,65 @@ def test_s3gen_still_rejects_incompatible_checkpoint(tmp_path, monkeypatch, stat
 
     with pytest.raises(RuntimeError, match="s3gen incompatível"):
         calls["S3Gen"]().load_state_dict(state_dict)
+
+
+@pytest.mark.parametrize(
+    "raw_tokens, completed",
+    [
+        pytest.param([[7] * 1000], False, id="budget-without-eos"),
+        pytest.param([[7, 7]], False, id="short-without-eos"),
+        pytest.param([[23, 7]], False, id="nonterminal-eos"),
+        pytest.param([[]], False, id="empty-sequence"),
+        pytest.param([[23], [23]], False, id="unexpected-batch"),
+        pytest.param([[7, 23]], True, id="terminal-eos"),
+        pytest.param([[7] * 999 + [23]], True, id="eos-at-budget"),
+    ],
+)
+def test_t3_completion_is_required_before_decoder_and_publication(
+    tmp_path, monkeypatch, raw_tokens, completed
+):
+    # Só a fronteira neural é substituída: o runtime real precisa recusar tokens
+    # inconclusivos antes de o generate alcançar S3Gen e de publicar WAV/result.
+    tokens = np.asarray(raw_tokens, dtype=np.int64)
+    inference_calls = []
+
+    def inference(**kwargs):
+        inference_calls.append(None)
+        return tokens
+
+    class DecoderReached(Exception):
+        pass
+
+    class Model:
+        sr = tts_stage.SAMPLE_RATE
+
+        def __init__(self):
+            self.t3 = types.SimpleNamespace(
+                hp=types.SimpleNamespace(stop_speech_token=23), inference=inference
+            )
+            self.decoder_input = None
+
+        def generate(self, *args, **kwargs):
+            self.decoder_input = self.t3.inference(max_new_tokens=1000)
+            raise DecoderReached("generate alcançou o decoder com o retorno do T3")
+
+    model = Model()
+    monkeypatch.setattr(tts_stage, "load_model", lambda *args: model)
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False)),
+    )
+    request_path, _ = _request(tmp_path, {"kind": "default"})
+
+    if completed:
+        with pytest.raises(DecoderReached):
+            _main(tmp_path, request_path, tts_stage.chatterbox_synthesize)
+        assert model.decoder_input is tokens
+    else:
+        code, result_path = _main(tmp_path, request_path, tts_stage.chatterbox_synthesize)
+        assert code == 1
+        assert model.decoder_input is None
+        assert not result_path.exists()
+        assert not (tmp_path / "out" / "speech.wav").exists()
+    assert len(inference_calls) == 1

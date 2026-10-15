@@ -174,10 +174,27 @@ def chatterbox_synthesize(
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_model(models_dir, language, device)
+    inference = model.t3.inference
+    eos_token = model.t3.hp.stop_speech_token
+
+    def require_completion(*args: Any, **kwargs: Any) -> Any:
+        tokens = inference(*args, **kwargs)
+        if tokens.ndim != 2 or tokens.shape[0] != 1 or tokens.shape[1] == 0:
+            raise StageError("T3 retornou tokens fora do formato [1, N] não vazio")
+        if tokens[0, -1].item() != eos_token:
+            raise StageError("T3 terminou sem EOS terminal; fala incompleta não será publicada")
+        return tokens
+
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
     prompt = str(voice) if voice else None
-    wav = model.generate(text, language_id=language, audio_prompt_path=prompt)
+    model.t3.inference = require_completion
+    try:
+        wav = model.generate(
+            text, language_id=language, audio_prompt_path=prompt, repetition_penalty=1.2
+        )
+    finally:
+        model.t3.inference = inference
     peak = torch.cuda.max_memory_allocated() / 2**20 if device == "cuda" else 0.0
     pcm16 = (wav.squeeze(0).clamp(-1.0, 1.0) * 32767).to(torch.int16).cpu().numpy().tobytes()
     return Synthesis(pcm16=pcm16, sample_rate=model.sr, peak_vram_mb=round(peak, 1))

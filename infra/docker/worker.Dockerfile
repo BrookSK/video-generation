@@ -79,6 +79,11 @@ WORKDIR /app/apps/worker
 COPY apps/worker/runtimes/tts/pyproject.toml apps/worker/runtimes/tts/uv.lock ./runtimes/tts/
 RUN uv sync --frozen --no-dev --directory runtimes/tts
 
+# Política v3: hunks upstream fixados, sem upgrade da wheel nem alteração dos pesos.
+# Confere hashes da base antes de retirar analisador/hooks e código morto.
+COPY infra/docker/patch_chatterbox.py infra/docker/chatterbox-v3-policy.patch /app/infra/docker/
+RUN runtimes/tts/.venv/bin/python /app/infra/docker/patch_chatterbox.py
+
 COPY apps/worker/runtimes/avatar/pyproject.toml apps/worker/runtimes/avatar/uv.lock ./runtimes/avatar/
 RUN uv sync --frozen --no-dev --directory runtimes/avatar
 
