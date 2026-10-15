@@ -59,15 +59,17 @@ O controle N foi gerado uma única vez, com saída zero e EOS 2150 observado. Re
 
 O ASR large recuperou a sequência esperada de H. O small-q4 segmentou “aproxima pessoas” como “a próxima pessoas”, divergência também presente em H. O restante das palavras foi recuperado. Não foi confirmado erro da fala nem sotaque por esses dados. A transcrição da referência é candidata, concordante nos dois ASRs, sem uma transcrição oficial publicada.
 
-A página privada `p06-sotaque-20261015/controle-referencia/revisao.html` contém a gravação humana identificada e o par H/N sob rótulos C/D em ordem fixa embaralhada. Os três players usam ganho constante para volume comum de aproximadamente −23,5 LUFS; a referência fornecida ao modelo é o PCM24k anterior a esse ajuste de escuta. Os hashes dos bytes ouvidos ficam em `mapa-escuta.json`. A voz feminina não foi resolvida por este ensaio masculino. A avaliação humana do alvo e da nova saída está pendente.
+A página privada `p06-sotaque-20261015/controle-referencia/revisao.html` contém a gravação humana identificada e o par H/N sob rótulos C/D em ordem fixa embaralhada. Os três players usam ganho constante para volume comum de aproximadamente −23,5 LUFS; a referência fornecida ao modelo é o PCM24k anterior a esse ajuste de escuta. Os hashes dos bytes ouvidos ficam em `mapa-escuta.json`. A voz feminina não foi resolvida por este ensaio masculino. O usuário aprovou a própria referência e a Voz D/N: elogiou pronúncia brasileira, entonação e naturalidade, afirmando que não perceberia IA numa conversa. A aprovação corresponde ao WAV ouvido D, SHA-256 `8af5824b914f83ede697de2235bda56aea5e69d2582ef83bef1eaea1e862e422`; o raw N tem outro hash. Veja [o registro de aprovação](../homologacao/P06-VOZ-APROVADA.md).
 
 Não houve novo render, contratação ou consumo de compute Verda. O arquivo novo mantém watermark Perth nulo e continua fora do manifesto/worker de produção. O erro inicial do controlador foi somente a ausência da pasta de logs, antes de criar o subprocesso de síntese; foi corrigido e registrado sem repetir inferência. Os dados brutos e fontes foram preservados.
 
 
-## Próxima decisão
+## Confirmação após o aceite de D
 
-A avaliação humana deve separar: sotaque no começo, sotaque ao longo da frase, naturalidade de ritmo/entonação e palavras pronunciadas. Conservar a opção de nenhuma atender e manter disponíveis as amostras anteriores já reprovadas. Se a direção funcionar, repetir em outras frases e seeds antes de integrar um novo motor ou renderizar vídeo longo.
+A direção masculina de D foi aceita. A revisão Astra posterior recomendou uma única rodada de confirmação: O mantém o texto de H e usa seed 20261016; P usa outra frase de conversa e a seed original 20261015. Referência, modelo, runtime e sampler ficam fixos. Novas saídas terão seus próprios vereditos. O aceite de D não é apagado se uma confirmação falhar.
 
-O controle N é a única nova troca de referência desta rodada. Se a própria referência atender e N continuar reprovado, o próximo contraste deve separar implementação e modelo com entrada equivalente, conforme a matriz do Astra. Se o alvo humano não atender, o resultado não condena o motor. Não há evidência de que mais variações de temperatura, sozinhas, garantam corrigir o sotaque. Os [limites e caminhos de referência](P06-SOTAQUE-REFERENCIAS.md) ficam separados do resultado dos ensaios.
+O e P já terminaram com EOS real e sem clipping: 9,52 s e 10,32 s. Os dois ASRs recuperaram o texto de P. Em O, large recuperou o texto e small divergiu localmente em “aproxima pessoas”. Isso não determina sotaque nem erro humano confirmado. A página `p06-confirmacao-voz-20261015/revisao.html` mantém D aprovada ao lado das duas confirmações pendentes. Os [hashes e limites](../homologacao/P06-VOZ-APROVADA.md) identificam os arquivos ouvidos.
+
+O controle N foi a única troca de referência nessa etapa. O aceite de D direciona o trabalho para confirmação e avatar. Não há evidência de que mais variações de temperatura, sozinhas, garantam corrigir o sotaque. Os [limites e caminhos de referência](P06-SOTAQUE-REFERENCIAS.md) ficam separados do resultado dos ensaios.
 
 As análises e evidências brutas não aprovam C1–C7. Voz, sincronia e movimento continuam sujeitos à revisão das amostras reais.

@@ -323,7 +323,9 @@ small manteve a divergência “aproxima”/“a próxima” já presente em H.
 
 A página `p06-sotaque-20261015/controle-referencia/revisao.html` mostra a fonte
 humana e a comparação masculina H/N sob rótulos C/D, com volume comum.
-Ainda não há veredito humano sobre esse controle, e ele não aprova a voz feminina.
+O usuário aprovou a Voz D/N e a referência humana em sotaque, entonação e
+naturalidade. O [registro de aprovação](P06-VOZ-APROVADA.md) fixa os bytes ouvidos.
+Esse aceite masculino não aprova a voz feminina.
 A mudança de locutor/duração/conteúdo da referência impede chamar esse par de
 isolamento exclusivo de “humano versus sintético”. Nenhum novo render foi feito.
 

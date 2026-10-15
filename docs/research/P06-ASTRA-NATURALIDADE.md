@@ -1,6 +1,8 @@
 # P06 — revisão crítica de naturalidade
 
-Revisão em 15/10/2026 por subagente Astra, reasoning medium. Escopo: análise do sistema e fontes primárias. Sem inferência, alteração de runtime ou audição pelo agente. O último veredito humano sobre VoiceDesign L/M foi **“Ainda nenhuma atende”**. Não há voz aprovada.
+Revisão em 15/10/2026 por subagente Astra, reasoning medium. Escopo: análise do sistema e fontes primárias. Sem inferência, alteração de runtime ou audição pelo agente. O último veredito humano sobre VoiceDesign L/M foi **“Ainda nenhuma atende”**. Naquele momento ainda não havia voz aprovada.
+
+Atualização posterior: o usuário aprovou explicitamente a referência humana Cadu e a Voz D/N em pronúncia brasileira, entonação e naturalidade. A análise abaixo registra o estado anterior ao ensaio. O [registro de aprovação](../homologacao/P06-VOZ-APROVADA.md) preserva o WAV ouvido e os limites desse aceite. O Astra confirmou depois o próximo passo: O (mesmo texto, outra seed) e P (outra frase, seed original), sem trocar a voz aprovada.
 
 ## Parecer
 
