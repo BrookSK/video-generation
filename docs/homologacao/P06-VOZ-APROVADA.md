@@ -2,6 +2,8 @@
 
 Aceite explícito do usuário em 15/10/2026: **Voz D = controle N**, Qwen3-TTS Base 1.7B bf16 com referência humana Cadu/OHF. O usuário considerou a fala brasileira, com boa entonação e naturalidade, dizendo que numa conversa não perceberia que é IA. A gravação humana dos impostos também foi considerada excelente e aceita como alvo.
 
+Na mesma data, o usuário informou que enviou a demonstração ao cliente, que gostou e considerou o áudio adequado. O arquivo disponibilizado para compartilhamento foi `voz-D-aprovada.mp3`, derivado do WAV D, com 9,84 s e SHA-256 `845e7d2819fc5818e15ba6e3451564b0881b6a2adf41cc54190dcbc9d1bb0973`. O retorno foi registrado por relato do usuário; cobre essa demonstração de áudio. O WAV de origem permanece preservado para o avatar. Registro privado: `ACEITE-CLIENTE.json` no pacote aprovado.
+
 ## Arquivo aprovado
 
 O arquivo ouvido é o derivado de escuta com ganho constante de +3,7 dB, e não o WAV bruto. Perfil PCM16 mono/24 kHz, 236.160 amostras, 9,84 s.
@@ -52,6 +54,8 @@ Consulta autenticada em 15/10/2026, relógio 17:56:04 UTC, registro 17:58:30 UTC
 A extrapolação de desempenho anterior dá 895,932 s de avatar para o áudio D. Na tarifa histórica A100 de US$ 0,998/h, mais armazenamento, seriam aproximadamente US$ 0,2653 sem inicialização/download, US$ 0,3541 com cinco minutos adicionais ou US$ 0,4430 com dez. A tarifa A100 não foi reconfirmada porque não havia capacidade. O saldo exibido deixa apenas cerca de 16 s para todas as etapas adicionais, sem reserva artificial de US$ 1.
 
 Uma RTX PRO 6000 96 GB estava disponível em FIN-03 por US$ 1,151/h, fora do cenário validado e da localização do volume. Não foi provisionada. A próxima execução depende de recarga e GPU compatível disponível. Nenhum recurso, chave, notificação ou recarga foi criado nessa consulta. Evidências privadas: `p06-confirmacao-voz-20261015/verda-consulta/`.
+
+Atualização em 15/10/2026: a recarga relatada pelo usuário foi confirmada no console às 18:35 UTC, com US$ 20,22. A capacidade A100 em FIN-01 desapareceu antes do deploy; um clone temporário para FIN-02 foi iniciado, mas a disponibilidade mudou novamente. Foi criada uma única A100 80 GB On-Demand em FIN-03, por US$ 1,996/h, com OS novo temporário de 250 GiB. O volume original permaneceu destacado e intacto em FIN-01. Os recursos temporários e sua limpeza ficam identificados no [registro do ensaio de avatar D](P06-AVATAR-D.md).
 
 ## Limites e integração
 
