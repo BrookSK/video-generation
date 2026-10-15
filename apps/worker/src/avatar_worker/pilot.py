@@ -16,6 +16,7 @@ sai 1.
 
 import argparse
 import hashlib
+import io
 import json
 import math
 import os
@@ -26,6 +27,7 @@ import subprocess
 import sys
 import threading
 import time
+import wave
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -128,6 +130,18 @@ class Sample:
     voice: str
     format: str
     composition: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class ReviewedTTS:
+    """Cópia validada para calibração; a origem declarada não é um aceite humano."""
+
+    directory: Path
+    audio: bytes
+    sha256: str
+    duration_s: float
+    request: dict[str, Any]
+    result: dict[str, Any]
 
 
 def _describe(exc: BaseException) -> str:
@@ -248,6 +262,83 @@ def _voice_request(recipe: Recipe, voice: str) -> dict[str, Any]:
     return request
 
 
+def _load_reviewed_tts(args: argparse.Namespace, recipe: Recipe, sample: Sample) -> ReviewedTTS:
+    directory = args.reviewed_tts_dir.resolve()
+    expected = args.reviewed_audio_sha256
+    if re.fullmatch(r"[0-9a-fA-F]{64}", expected) is None:
+        raise ValueError("SHA-256 esperado precisa ter 64 caracteres hexadecimais")
+    audio = (directory / "speech.wav").read_bytes()
+    digest = hashlib.sha256(audio).hexdigest()
+    if digest != expected.lower():
+        raise ValueError("SHA-256 de speech.wav diverge do hash declarado")
+    request = json.loads((directory / "tts_request.json").read_text(encoding="utf-8"))
+    result = json.loads((directory / "tts_result.json").read_text(encoding="utf-8"))
+    if not isinstance(request, dict) or not isinstance(result, dict):
+        raise ValueError("tts_request.json e tts_result.json precisam ser objetos")
+    for field, value in (
+        ("text", sample.text),
+        ("language", recipe.tts.language),
+        ("voice", _voice_request(recipe, sample.voice)),
+    ):
+        if request.get(field) != value:
+            raise ValueError(f"request.{field} difere da amostra ou da receita")
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as handle:
+            if handle.getcomptype() != "NONE":
+                raise ValueError("WAV precisa ser PCM sem compressão")
+            if handle.getnchannels() != 1:
+                raise ValueError("WAV precisa ser mono")
+            if handle.getsampwidth() != 2:
+                raise ValueError("WAV precisa ter 16 bits")
+            if handle.getframerate() != 24000:
+                raise ValueError("WAV precisa ter 24000 Hz")
+            frames = handle.getnframes()
+            if not frames:
+                raise ValueError("WAV vazio")
+            if len(handle.readframes(frames)) != frames * 2:
+                raise ValueError("WAV incompleto: dados menores que o cabeçalho")
+    except (wave.Error, EOFError) as exc:
+        raise ValueError(f"WAV inválido: {exc}") from exc
+    duration = frames / 24000
+    limit = args.max_audio_seconds or recipe.limits.max_audio_seconds
+    if duration > limit:
+        raise ValueError(f"áudio de {duration} s acima do limite de {limit} s")
+    if result.get("sample_rate") != 24000:
+        raise ValueError("result.sample_rate precisa ser 24000")
+    declared_duration = result.get("duration_s")
+    if (
+        isinstance(declared_duration, bool)
+        or not isinstance(declared_duration, int | float)
+        or not math.isfinite(declared_duration)
+        or abs(declared_duration - duration) > 0.001
+    ):
+        raise ValueError("result.duration_s difere da duração medida do WAV")
+    if not isinstance(result.get("audio_path"), str) or not result["audio_path"].strip():
+        raise ValueError("result.audio_path precisa ser texto não vazio; o caminho não será usado")
+    if result.get("watermark_detected") is not True:
+        raise ValueError("result.watermark_detected precisa ser true")
+    return ReviewedTTS(directory, audio, digest, duration, request, result)
+
+
+def _reuse_reviewed_tts(reviewed: ReviewedTTS, models: Path, work_dir: Path) -> dict[str, Any]:
+    # Não reabrir a origem após o preflight: copiar somente os bytes já validados.
+    if hashlib.sha256(reviewed.audio).hexdigest() != reviewed.sha256:
+        raise StageError("SHA-256 do áudio revisado diverge antes da cópia")
+    audio_path = work_dir / "speech.wav"
+    audio_path.write_bytes(reviewed.audio)
+    if _sha256(audio_path) != reviewed.sha256:
+        raise StageError("SHA-256 da cópia do áudio revisado diverge")
+    request = {**reviewed.request, "models_dir": str(models), "out_wav": str(audio_path)}
+    result = {
+        **reviewed.result,
+        "audio_path": str(audio_path),
+        "duration_s": reviewed.duration_s,
+    }
+    _write_json(work_dir / "tts_request.json", request)
+    _write_json(work_dir / "tts_result.json", result)
+    return result
+
+
 def _run_once(
     args: argparse.Namespace,
     recipe: Recipe,
@@ -278,20 +369,30 @@ def _run_once(
         extend_to_bucket(canvas, frame, pad_color).save(render_input_path)
 
     with meter.measure(stages, "tts"):
-        tts = _run_stage(
-            args.tts_python,
-            TTS_STAGE,
-            {
-                "text": sample.text,
-                "language": recipe.tts.language,
-                "models_dir": str(args.models),
-                "out_wav": str(work_dir / "speech.wav"),
-                "voice": _voice_request(recipe, sample.voice),
-            },
-            work_dir,
-            "tts",
-        )
-        stages["tts"]["runtime_peak_vram_mb"] = tts.get("peak_vram_mb")
+        reviewed = getattr(args, "reviewed_tts", None)
+        if reviewed is not None:
+            tts = _reuse_reviewed_tts(reviewed, args.models, work_dir)
+            stages["tts"]["source"] = "reviewed"
+            run["audio_source"] = {
+                "kind": "reviewed",
+                "directory": str(reviewed.directory),
+                "sha256": reviewed.sha256,
+            }
+        else:
+            tts = _run_stage(
+                args.tts_python,
+                TTS_STAGE,
+                {
+                    "text": sample.text,
+                    "language": recipe.tts.language,
+                    "models_dir": str(args.models),
+                    "out_wav": str(work_dir / "speech.wav"),
+                    "voice": _voice_request(recipe, sample.voice),
+                },
+                work_dir,
+                "tts",
+            )
+            stages["tts"]["runtime_peak_vram_mb"] = tts.get("peak_vram_mb")
         run["audio_seconds"] = tts["duration_s"]
         run["watermark_detected"] = tts["watermark_detected"]
         limit = limits["max_audio_seconds"]
@@ -456,7 +557,9 @@ def run_pilot(args: argparse.Namespace, recipe: Recipe, samples: list[Sample]) -
         "network_interfaces": _network_interfaces(),
         # Quem roda cada runtime e mede a VRAM: um dublê de teste fica identificado no relatório.
         "commands": {
-            "tts": [str(args.tts_python), str(TTS_STAGE)],
+            "tts": []
+            if getattr(args, "reviewed_tts", None)
+            else [str(args.tts_python), str(TTS_STAGE)],
             "avatar": [str(args.avatar_python), str(AVATAR_STAGE)],
             "vram": args.vram_command,
         },
@@ -650,6 +753,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="só calibração; substitui o limite da receita e fica no relatório",
     )
     parser.add_argument("--out", type=Path, required=True, help="diretório de saída novo ou vazio")
+    parser.add_argument(
+        "--reviewed-tts-dir",
+        type=Path,
+        help="só calibração: pasta com tts_request.json, tts_result.json e speech.wav",
+    )
+    parser.add_argument(
+        "--reviewed-audio-sha256",
+        help="SHA-256 do WAV escolhido pelo operador; não implica aprovação humana",
+    )
     parser.add_argument("--tts-python", type=Path, default=DEFAULT_TTS_PYTHON)
     parser.add_argument("--avatar-python", type=Path, default=DEFAULT_AVATAR_PYTHON)
     parser.add_argument("--infinitetalk-dir", type=Path, default=DEFAULT_INFINITETALK_DIR)
@@ -660,11 +772,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if (args.reviewed_tts_dir is None) != (args.reviewed_audio_sha256 is None):
+        parser.error("áudio revisado exige --reviewed-tts-dir e --reviewed-audio-sha256 juntos")
     try:
         samples = load_queue(args.queue)
     except QueueError as exc:
         problems = "\n".join(f"- {problem}" for problem in exc.problems)
         parser.error(f"fila recusada com {len(exc.problems)} problema(s):\n{problems}")
+    if args.reviewed_tts_dir is not None and (len(samples) != 1 or args.runs != 1):
+        parser.error("áudio revisado exige fila com uma amostra e --runs 1")
     if args.out.exists() and not (args.out.is_dir() and not any(args.out.iterdir())):
         parser.error(f"--out {args.out} já foi usado; escolha um diretório novo ou vazio")
     try:
@@ -680,6 +796,12 @@ def main(argv: list[str] | None = None) -> int:
     except RecipeError as exc:
         print(f"Receita recusada:\n{exc}", file=sys.stderr)
         return 1
+    args.reviewed_tts = None
+    if args.reviewed_tts_dir is not None:
+        try:
+            args.reviewed_tts = _load_reviewed_tts(args, recipe, samples[0])
+        except (OSError, ValueError) as exc:
+            parser.error(f"áudio revisado recusado: {exc}")
     return run_pilot(args, recipe, samples)
 
 
