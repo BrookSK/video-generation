@@ -189,8 +189,10 @@ Ambas terminaram com exit zero, WAV PCM mono/16 bits/24 kHz e watermark detectad
 - B: SHA-256 `0387f614f54cd3c265119799d69cbdb1068d3c58609c9076ce1f6f241c996f03`.
 
 As novas opções estão no topo de `p06-polimento-20261015/revisao.html`.
-**Voz e entonação de A/B aguardam escuta humana.** Não foi criada uma nova voz
-masculina nesta comparação. ASR não escolhe a melhor opção. Este ensaio MPS não
+O usuário avaliou a nova rodada: **melhorou, mas ainda está robótica**, sobretudo
+na saudação “olá” e na entonação das frases. Não houve escolha de A/B nem aceite.
+Não foi criada uma nova voz masculina nesta comparação. ASR não escolhe a melhor
+opção. Este ensaio MPS não
 homologa o runtime Linux/CUDA da imagem publicada. O campo `peak_vram_mb=0` do
 estágio mede somente CUDA e não representa uso zero de memória no Mac.
 
@@ -234,6 +236,16 @@ autorizados, além de avaliar as amostras. Implementar, instalar e ajustar o
 pipeline faz parte do trabalho técnico do desenvolvedor. Não existe dependência
 contratada de SaaS de avatar ou voz. Os modelos podem ser substituídos dentro do
 pipeline open-source se a calibração não atender à qualidade combinada.
+
+Conferência no PDF original `lucas-n-avatar-ia-api-v3.pdf`, SHA-256
+`5f4b37d34d190a951a65275e7b5d5c12bf049556038b970d2781c3394bba98b5`:
+a página 2 deixa a escolha fina de TTS/avatar para a implantação; as páginas
+1/5/7 permitem ajustar o provedor dentro do pipeline open-source. A tabela de
+responsabilidades da página 6 atribui ao cliente infraestrutura, custos e
+imagens/referências/materiais, sem exigir que ele entregue modelos neurais de
+voz/vídeo prontos. Modelos na conta do cliente descrevem local e controle, não
+fornecimento de um modelo próprio. O Whisper foi apenas transcritor diagnóstico;
+os áudios desta rodada foram sintetizados pelo Chatterbox.
 
 ## Ordem econômica de validação
 
@@ -329,7 +341,8 @@ sem solicitar novo login já restabelecido.
   `in` e o stress numérico anterior foram preservados byte a byte.
 - Seis WAVs reais salvos localmente e comparados com dois ASRs offline cada:
   três na A100 e três no MPS. As demos A100 foram reprovadas
-  pelo usuário na voz/entonação; A/B aguardam avaliação. O stress A100 também
+  pelo usuário na voz/entonação; A/B tiveram melhora parcial, ainda sem aceite
+  por fala robótica. O stress A100 também
   apresentou divergências lexicais, assim como o novo caso C. O caso D foi
   recusado sem EOS e não gerou WAV. O ensaio por extenso anterior da A100 precisa
   ser recuperado do volume; o render não iniciou.
