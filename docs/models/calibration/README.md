@@ -1,6 +1,8 @@
 # Calibração de fala, presença e cenário
 
-Pacote exploratório da P06. Não muda a receita vigente, não aprova qualidade e não congela receita. Use a imagem atual por digest, com a correção D001. Preparar e validar entradas não usa GPU; TTS e piloto usam compute e exigem saldo compatível com a janela autorizada.
+Pacote exploratório da P06. Não muda a receita vigente, não aprova qualidade e não congela receita. A imagem candidata do commit `ba8659105989d5f32b99c2c8ec82d0fc3299b346` foi publicada em 15/10/2026 com o digest abaixo. O manifesto remoto autenticado foi conferido, e `pilot --help` passou sem rede/GPU, como uid 10001, com as flags de áudio revisado presentes. Esse smoke valida o CLI; inferência GPU dessa imagem e aceite humano de voz, entonação e vídeo continuam pendentes. As receitas geradas permanecem `draft`.
+
+Preparar e validar entradas não usa GPU; TTS e piloto usam compute e exigem saldo compatível com a janela autorizada. Antes de abrir a janela paga, confira o espaço necessário para as camadas ausentes e os modelos já disponíveis no volume. A imagem antiga não ganha as novas flags por atualizar somente a receita. A execução excepcional com um módulo montado precisa identificar separadamente imagem, commit e hash do módulo no registro do ensaio.
 
 ## Preparar
 
@@ -8,12 +10,13 @@ Na raiz do repositório, escolha um diretório novo dentro da base de trabalho:
 
 ```bash
 CALIBRATION_DIR="$(rtk proxy mktemp -d /Users/felipebianchini/Developer/p06-calibration.XXXXXX)"
-rtk proxy python3 docs/models/calibration/prepare.py --materials "$MATERIALS_DIR" --out "$CALIBRATION_DIR/in"
+WORKER_IMAGE="vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker@sha256:cad3a59ea8afb4197179a02ce6702a48bb9bf8f3f79acb586645291b53c632b4"
+rtk proxy python3 docs/models/calibration/prepare.py --materials "$MATERIALS_DIR" --out "$CALIBRATION_DIR/in" --worker-image "$WORKER_IMAGE"
 ```
 
 `MATERIALS_DIR` aponta para os seis PNGs existentes: `avatar-feminino.png`, `avatar-masculino.png` e `cenario-{escritorio,estudio,sala,loja}.png`. Reutilize os materiais autorizados; não gere imagens novas neste preparo. O script usa só a biblioteca padrão, recusa saída existente e copia imagens, falas, manifesto e receita atuais. `SHA256SUMS` identifica as entradas geradas. Guarde o pacote em área privada e remova o diretório temporário ao terminar de usar.
 
-O modo de áudio pré-ouvido abaixo exige reconstruir/publicar a imagem com o novo CLI. Depois do build, prepare um pacote novo acrescentando `--worker-image "$WORKER_IMAGE"`, com o candidato real `ref@sha256:...`. A opção valida o formato e aplica o mesmo digest às três receitas externas; não comprova que a imagem existe nem altera `RECIPE-v1.json`. Sem a opção, a base é cópia exata da receita atual, cuja imagem antiga não oferece esse modo.
+O exemplo usa a imagem publicada com o novo CLI necessário ao modo de áudio pré-ouvido. A opção `--worker-image` valida o formato e aplica o mesmo digest às três receitas externas; o script não consulta o registro nem altera `RECIPE-v1.json`. Sem a opção, a base é cópia exata da receita atual, cuja imagem antiga não oferece esse modo. Uma imagem futura exige novo build/publicação, conferência do digest e um pacote novo.
 
 | Entrada gerada | Uso |
 |---|---|

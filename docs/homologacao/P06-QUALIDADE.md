@@ -1,8 +1,11 @@
 # P06 — revisão de qualidade e próxima rodada
 
-Registro de 15/10/2026. **P06/T06 continua incompleta.** O pacote de calibração
-prepara comparações; não comprova melhora de voz, movimento ou cenário sem novas
-inferências e avaliação das saídas. A receita de produção permanece `draft`.
+Registro de 15/10/2026. **P06/T06 continua incompleta.** A rodada retestou falas
+na GPU, gerou duas opções adicionais de prosódia no Mac e preparou uma amostra
+curta de vídeo, que não iniciou após preempção.
+Cada resultado precisa ser avaliado;
+checks locais e ASR não aprovam voz, movimento ou cenário. A receita de produção
+permanece `draft`.
 
 ## Resultado usado como base
 
@@ -101,8 +104,118 @@ texto literal, língua, referência de voz, PCM mono/16 bits/24 kHz, duração m
 limite e resultado de watermark. Os bytes conferidos são preservados em memória
 no preflight e copiados para o render, sem chamar o sintetizador novamente. O
 relatório identifica a reutilização; ela não representa um aceite humano.
-É preciso construir/publicar uma nova imagem identificada para usar essa opção
-na GPU. A imagem do preview anterior não contém as novas flags.
+A imagem do preview anterior não contém as novas flags. O código da alteração
+está no commit `ba8659105989d5f32b99c2c8ec82d0fc3299b346`. A imagem nova foi
+construída e publicada em CPU pelo Dockerfile canônico:
+
+`vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker@sha256:cad3a59ea8afb4197179a02ce6702a48bb9bf8f3f79acb586645291b53c632b4`
+
+A tag `p06-quality-ba86591` e o índice remoto autenticado têm o mesmo digest,
+conferido por SHA-256 dos bytes crus. O smoke da CLI Linux/amd64 passou sem
+rede, com uid 10001, as duas flags presentes e label do commit conferido. Isso
+valida publicação/CLI, sem afirmar qualidade de inferência. Logs e hashes de
+21 arquivos estão em `p06-polimento-20261015/build/`.
+
+O render preparado durante a janela curta usava a imagem D001 anterior com bind
+somente leitura do módulo `pilot.py` desse commit. O overlay e seus hashes foram
+registrados separadamente; o preflight passou, mas o render não chegou a iniciar.
+Novas tentativas devem
+usar a imagem publicada, após conferir disponibilidade e saldo.
+
+## Nova rodada de TTS
+
+As falas curtas foram sintetizadas na A100 em 15/10/2026, com a imagem D001 e as
+mesmas referências do manifesto. Os dois WAVs têm watermark detectado e foram
+transcritos offline pelos dois checkpoints já usados no diagnóstico, sem texto
+esperado no prompt.
+
+| Amostra | Duração real | Diagnóstico dos dois ASRs |
+|---|---|---|
+| Demo feminina | 8,64 s | Todas as palavras do request recuperadas |
+| Demo masculina | 11,44 s | Todas as palavras do request recuperadas |
+| Stress numérico feminino | 26,52 s | Divergências em pedido, preço, telefone e oferta |
+
+A demo feminina diz: “Olá, eu sou a Ana. Aqui, sua ideia ganha voz com clareza e
+atenção. Conte com a nossa equipe para dar o próximo passo.” O WAV tem SHA-256
+`edc29bf1aa83bb45b7a678b7e7fbcf5614f5ade81654ca0df1f9e4f79f1f4203`.
+Os relatórios completos estão em `p06-polimento-20261015/asr/`, na área privada
+de amostras. A correspondência lexical foi favorável, mas o usuário ouviu as duas
+demos e respondeu **“Ainda precisam de ajuste”**. Ao detalhar o problema, indicou
+**“A voz e a entonação”**. As duas estão reprovadas nesses aspectos. Manter os
+textos como controle e não avançar ao render como se houvesse aprovação da voz.
+
+No stress original novo, os dois ASRs reconheceram pedido 228 em vez de 218 e
+valores diferentes de R$ 149,90. Telefone e trecho Júlia/oferta divergiram nos
+dois. O final ficou mais próximo da entrada, mas a literalidade continua
+reprovada neste ensaio de TTS. EOS e watermark detectado não impediram o defeito.
+O SHA-256 desse WAV é
+`9cfdd28201a65bbd3e73aaa3bb84a193620210d23e475210f87a8eb78b28c46d`.
+
+O ensaio por extenso registrou saída zero no comando, mas a cópia não terminou
+antes da remoção da instância. Seu WAV e resultado precisam ser recuperados do
+volume e conferidos; não há diagnóstico local ou comparação válida dessa fala.
+O overlay CUDA com temperatura 0,3 ficou apenas preparado, sem inferência.
+Uma experiência local MPS com essa temperatura é registrada separadamente abaixo.
+
+## Ajuste de voz e entonação após a escuta
+
+Uma tentativa na CPU existente usou os cinco pesos TTS e a referência feminina
+do manifesto, conferidos por tamanho/SHA, sem rede. Não terminou dentro do limite
+de dez minutos e foi encerrada; não produziu WAV. O exit 137 veio do encerramento
+explícito do contêiner, sem evento de OOM. O ensaio incluiu importações e ocorreu
+durante atividade de disco do build; não é um benchmark isolado de CPU.
+Contêiner e pasta temporária foram removidos, preservando os pesos úteis.
+
+Foi então testada a GPU local do Mac, em ambiente descartável, com Chatterbox
+Multilingual 0.1.7 e torch/torchaudio 2.6.0. Os mesmos cinco pesos e a referência
+`pf_dora` foram conferidos. O estágio TTS D001 e a política v3 canônicos foram
+preservados. O wrapper altera o device para MPS e injeta os controles registrados,
+sem reescrever texto, aumentar tokens ou relaxar EOS. `sandbox-exec` negou rede;
+um smoke permitiu tensor MPS e recusou socket localhost com EPERM. Código e saída
+do smoke estão em `mps-tts/network-smoke.json`, na área privada de amostras.
+
+| Opção feminina | Expressividade | Duração WAV | Tempo total do subprocesso | Diagnóstico dos dois ASRs |
+|---|---|---|---|---|
+| A | 0,40 | 8,24 s | 58,757 s | Todas as palavras recuperadas |
+| B | 0,65 | 8,04 s | 31,750 s | Todas as palavras recuperadas |
+
+As duas mantêm o texto da Ana, referência `pf_dora`, CFG 0,3, temperatura 0,8,
+seed 20261015 e repetition penalty 1,2. A versus B muda somente expressividade;
+comparar qualquer uma à demo CUDA anterior também muda device e outros controles.
+Os tempos não isolam efeitos da configuração nem demonstram superioridade de B.
+Ambas terminaram com exit zero, WAV PCM mono/16 bits/24 kHz e watermark detectado.
+
+- A: SHA-256 `3c916d3f4163a911e3207f6367377abb829c76951127de5e5e3520ddc892797c`.
+- B: SHA-256 `0387f614f54cd3c265119799d69cbdb1068d3c58609c9076ce1f6f241c996f03`.
+
+As novas opções estão no topo de `p06-polimento-20261015/revisao.html`.
+**Voz e entonação de A/B aguardam escuta humana.** Não foi criada uma nova voz
+masculina nesta comparação. ASR não escolhe a melhor opção. Este ensaio MPS não
+homologa o runtime Linux/CUDA da imagem publicada. O campo `peak_vram_mb=0` do
+estágio mede somente CUDA e não representa uso zero de memória no Mac.
+
+Requests, configs, wrapper, estágio original, freeze, logs, monitores, resultados,
+WAVs e quatro transcrições ficam em `p06-polimento-20261015/mps-tts/`.
+Nenhum vídeo novo foi gerado. Enquadramento, ações e fundo continuam candidatos
+estáticos, sujeitos a comparação animada com áudio aprovado.
+
+O diagnóstico numérico foi repetido localmente em MPS com temperatura 0,3,
+CFG 0,3, expressividade 0,4, seed 20261015 e os mesmos pesos/referência:
+
+| Caso | Resultado real | Diagnóstico |
+|---|---|---|
+| C, texto numérico V4 original | Exit zero, WAV 32,24 s, watermark detectado | Ambos ASRs apontaram pedido 2818 em vez de 218; preço e telefone também divergiram. Negativas, horário e trecho dos dois produtos/Júlia foram recuperados. A fidelidade continua reprovada. |
+| D, equivalente por extenso | Exit 1, sem WAV nem resultado TTS | D001 recusou a saída porque T3 terminou sem EOS terminal. Não existe comparação auditiva C/D completa. |
+
+O WAV C tem SHA-256
+`1c4e23a5801ef18248aff0a3c2f3e843930c25e24b19f7f4af758baa690ef1a5`.
+Reduzir a temperatura não resolveu a fidelidade neste ensaio. A versão por extenso
+também não demonstrou solução. Nenhum limite ou guarda foi ampliado para contornar
+a recusa. Esses resultados não corrigem nem encerram o defeito CUDA original.
+
+Os ambientes temporários e o scratch de acessos foram removidos depois da
+verificação. Não restaram processos MPS ou ControlMaster desta operação. Pesos,
+referências, caches úteis e o volume original da Verda foram preservados.
 
 ## Modelos e responsabilidades
 
@@ -150,29 +263,57 @@ arquivos anteriores.
 O último fechamento, às 03:49 UTC de 15/10/2026, registrou US$ 1,41 de saldo,
 reserva de US$ 1 e apenas o volume original preservado, a US$ 0,06849/h.
 Compute e clone temporário foram excluídos. **Esses valores são históricos.**
-Nesta retomada, o console abriu deslogado e não foi possível consultar billing
-atual. O alias SSH antigo não serve como confirmação de instância atual.
-Nenhum novo recurso pago foi criado e nenhuma recarga foi feita.
 
-A consulta anônima/com as credenciais locais disponíveis ao manifesto do digest
-anterior no registro retornou `no such manifest`. Isso não diferencia imagem
-privada/inacessível de referência removida. Não há imagem local do worker para
-reutilizar. A próxima janela também precisa restabelecer acesso ao registro e
-publicar/conferir a imagem do código atual; não reutilizar o digest antigo como se
-incluísse as novas flags.
+Nesta conversa, o usuário atualizou a orientação: usar os créditos restantes nos
+testes antes de solicitar recarga. Portanto, a reserva anterior de US$ 1 não
+bloqueia esta rodada. Isso não autoriza recarga automática nem exclusão do volume
+original. Priorizar TTS isolado e confirmar o saldo atual antes de criar compute.
+O acesso existente ao console e ao registro foi recuperado. O saldo real era
+US$ 0,80 antes da criação da instância. Nenhuma recarga foi feita. O alias SSH
+antigo foi descartado como evidência de instância atual.
 
-Com o desempenho medido e os preços históricos, oito execuções de 30 s custariam
-cerca de US$ 6,83; incluindo uma de 60 s, cerca de US$ 8,54. Essa projeção não
+Foi criada uma A100 de 80 GB spot em FIN-01, às 13:50 UTC de 15/10/2026:
+`avatar-p06-quality-ba86591`, ID `d17d0320-7a6a-4b1b-b9ba-2ff365dbe729`,
+US$ 0,998/h. O volume original `OS-fHuXBon4`, 250 GiB, foi reutilizado,
+sem clone, a US$ 0,06849/h. A política de remoção preserva o armazenamento.
+O limite operacional planejado era 14:27 UTC, para salvar as saídas e excluir
+compute antes de esgotar o saldo e perder o volume.
+
+O preflight confirmou A100/80 GB, CUDA, hashes de 40 arquivos de modelos e duas
+referências, além das 38 entradas do pacote. A imagem D001 `f2814d2…` foi obtida
+do registro autenticado e conferida. Os estágios de inferência rodam sem rede,
+com uid 10001 e modelos/entradas montados somente para leitura.
+
+Às aproximadamente 14:02 UTC, o console indicava US$ 0,44, 25 minutos estimados
+e uso total de US$ 1,07/h. A [cobrança da Verda](https://docs.verda.com/welcome-to-verda/pricing-and-billing/)
+antecipa blocos de dez minutos e pode remover instâncias e volumes ao zerar o
+saldo. Usar o saldo restante não significa provocar a perda do volume original.
+
+O log de auditoria autenticado confirmou `discontinue_reason:
+evicted_by_on_demand` às 14:04:59,294 UTC. A instância foi excluída e o volume
+desanexado às 14:05:08 UTC. A tentativa de render às 14:06:20 UTC foi recusada
+pelo SSH, cuja chave não correspondia ao pin. Nenhum comando do render chegou
+a executar. Não trocar o pin para acessar o IP já reassociado.
+
+A recuperação consultou A100 de 80 GB/H100 sob demanda e spot, além de CPU
+Turin de 8/16 vCPUs. Não havia capacidade compatível disponível; nenhuma
+instância de recuperação foi criada. O console confirmou lista de instâncias
+vazia e volume original `Detached`. Às aproximadamente 14:10 UTC, o saldo era
+US$ 0,44 e o uso era apenas US$ 0,06849/h do volume. Não foi possível usar
+todo o saldo nesta janela por falta de capacidade. Não há MP4 novo, comparação
+animada, aprovação de movimento/sincronia ou receita congelada nesta rodada.
+
+Com o desempenho anterior de 91,05 s/s e o preço desta janela de US$ 1,06649/h
+(GPU e volume), oito execuções de 30 s custariam cerca de US$ 6,47; incluindo uma
+de 60 s, cerca de US$ 8,09. Essa projeção não
 inclui 720p, preparação, espera por clonagem, repetições ou a matriz final. A
 reserva de armazenamento vem além disso. Preço, capacidade e saldo devem ser
 conferidos antes de contratar a próxima janela.
 
-Mensagem para o cliente:
-
-> Precisamos repor os créditos da Verda para continuar os testes de qualidade dos
-> vídeos. O saldo registrado na última rodada já não cobria uma nova geração.
-> Pode adicionar saldo e avisar quando estiver disponível? Vamos validar primeiro
-> as falas e depois os movimentos e cenários, para usar melhor os créditos.
+O saldo restante deve ser aproveitado quando houver compute compatível. Ele
+não cobre a matriz completa. A recarga não resolve sozinha a indisponibilidade
+de capacidade. Avisar o usuário quando o saldo real não cobrir a próxima janela,
+sem solicitar novo login já restabelecido.
 
 ## Verificação desta alteração
 
@@ -182,8 +323,13 @@ Mensagem para o cliente:
 - Nova bateria de 15 casos verifica reuso dos bytes, ausência de ressíntese,
   rejeições no preflight e preservação do fluxo antigo. A reprodução anterior à
   implementação falhou como esperado. Revisão independente: nenhum finding aberto.
-- Pacote privado preparado: três receitas e quinze filas válidas, hashes
-  conferidos e stress numérico anterior preservado byte a byte.
-- Não houve nova síntese Chatterbox, inferência InfiniteTalk, build/publicação de
-  imagem ou aprovação de qualidade nesta rodada. As novas falas e os novos
-  parâmetros ainda precisam passar pelos testes reais.
+- Novo pacote privado `in-publicado`: três receitas e quinze filas válidas,
+  oito requests coerentes e hashes dos 38 arquivos conferidos. Usa o digest
+  publicado `cad3a59e…632b4`; somente a imagem muda no baseline. O pacote anterior
+  `in` e o stress numérico anterior foram preservados byte a byte.
+- Seis WAVs reais salvos localmente e comparados com dois ASRs offline cada:
+  três na A100 e três no MPS. As demos A100 foram reprovadas
+  pelo usuário na voz/entonação; A/B aguardam avaliação. O stress A100 também
+  apresentou divergências lexicais, assim como o novo caso C. O caso D foi
+  recusado sem EOS e não gerou WAV. O ensaio por extenso anterior da A100 precisa
+  ser recuperado do volume; o render não iniciou.
