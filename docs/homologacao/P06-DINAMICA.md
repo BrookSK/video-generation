@@ -1,5 +1,7 @@
 # P06 — ensaio de dinâmica
 
+Atualização de 16/10/2026: o usuário informou o aceite do vídeo masculino anterior e solicitou três novos pares de avatar/voz. O [lote adicional](P06-LOTE-ADICIONAL.md) registra os novos materiais e a situação atual do acesso à GPU. Os estados de recursos abaixo descrevem a rodada anterior, nas horas registradas.
+
 O cliente gostou da demonstração anterior e pediu zoom e gesticulação. Esta rodada preserva a voz D aprovada. A [pesquisa e análise da referência](../research/P06-DINAMICA.md) registra as fontes primárias, a revisão do Astra e os limites de cada hipótese.
 
 Pacote privado: `video-generation-amostras/p06-dinamica-20261015/`. Página de comparação: `revisao.html`. As saídas são candidatas para avaliação do usuário; não são aceite da P06 inteira nem mudança no worker de produção.
