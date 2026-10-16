@@ -2,6 +2,8 @@
 
 Em 16/10/2026, o usuário informou que o cliente aprovou o vídeo masculino anterior e combinou mais um avatar masculino e dois femininos, com uma nova voz masculina e duas novas vozes femininas. Esta rodada gerou e entregou esses **três novos pares para avaliação**, preservando os arquivos anteriores. O relato não identifica um SHA específico entre as variantes do homem anterior; não foi atribuída aprovação automática a todas elas.
 
+**Retorno posterior do usuário em 16/10/2026: Ana e Marina foram rejeitadas em voz e vídeo.** Os passes técnicos abaixo descrevem integridade e alinhamento, sem superar essa reprovação perceptiva. A nova investigação e os ensaios estão em [revisão das femininas](P06-FEMININAS-REVISAO.md).
+
 O aceite dos novos pares e a conclusão integral do projeto ainda estão pendentes. A receita parte das lições documentadas na [voz D](P06-VOZ-APROVADA.md) e no [ensaio de gestos e zoom](P06-DINAMICA.md).
 
 ## Entrega local
