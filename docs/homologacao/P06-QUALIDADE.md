@@ -7,6 +7,15 @@ Cada resultado precisa ser avaliado;
 checks locais e ASR não aprovam voz, movimento ou cenário. A receita de produção
 permanece `draft`.
 
+## Rodada posterior — dinâmica
+
+O cliente gostou da demonstração masculina com a voz D e pediu zoom e gestos.
+A pesquisa, o ensaio com meio corpo e as verificações do zoom estão no
+[registro de dinâmica](P06-DINAMICA.md). O
+[ensaio audiovisual D](P06-AVATAR-D.md) registra a base e a compensação de
+sincronia; a [voz aprovada](P06-VOZ-APROVADA.md) identifica o WAV preservado.
+O restante deste documento mantém o histórico da rodada anterior.
+
 ## Resultado usado como base
 
 Preview `calibracao-d001-preliminar-01/feminina-escritorio-9x16/run-1/final.mp4`,
