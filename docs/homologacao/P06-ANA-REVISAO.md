@@ -8,6 +8,10 @@ A investigação compara referência humana, áudio raw, ganho de escuta, MP3 e 
 
 O encerramento da instância Verda anterior permanece bloqueado por autenticação expirada. O login foi testado novamente nesta sessão, inclusive após reload, e ainda exibe Sign in. Foi solicitado ao usuário entrar no Chrome normal pela extensão. Não se declarou a instância excluída ou o custo encerrado. Nenhum novo render pago foi iniciado nesta revisão.
 
+## Retorno posterior: corrigir somente a abertura
+
+O usuário informou que “Olá, eu sou a Ana” continua ruim, mas o restante da N1 ficou muito bom. Esse retorno é parcial: não aceita a N1 inteira e preserva a avaliação positiva do corpo. A correção seguinte fica restrita à abertura, em `video-generation-amostras/p06-ana-abertura-20261016/`. Marina continua intacta. O plano é gerar duas apresentações isoladas com o mesmo texto e referência N1 e concatenar cada uma ao corpo original, sem alterar suas amostras.
+
 ## Evidência de origem e controles
 
 A auditoria `audio/CADEIA-AUDIT.json` confirma a pausa em baixa energia no raw A: aproximadamente 4,190–5,948 s, interrompida por somente 1,96 ms acima de −45 dB. O ganho de escuta é constante (+0,880001 dB), sem mudança de duração ou lag. A variação por bandas entre WAV e áudio do MP4 é de cerca de +0,0009 a −0,0213 dB entre 80 e 10.000 Hz. A finalização não explica a pausa e tem pouco suporte como origem da forte coloração relatada; esses números não diagnosticam timbre por si só.
@@ -42,3 +46,22 @@ A página e o MP3 N1 foram apresentados ao usuário. A avaliação de naturalida
 O manifesto de áudio tem 50 arquivos conferidos por SHA pelo root. Os ambientes temporários de TTS/ASR foram removidos e 17 arquivos de modelos/fontes/cache preservados. A fonte A e os arquivos da Marina permanecem intactos. Esta revisão ainda não declara a Ana corrigida nem encerra a P06.
 
 O root verificou também os 12 arquivos do manifesto de preparo do render. O servidor local temporário foi encerrado e a ausência do listener confirmada; a revisão permanece disponível como HTML local com referências relativas. Não restaram caches de bytecode ou runtimes temporários desta rodada. O estado atual é amostra vocal pronta para avaliação, vídeo novo não iniciado e encerramento cloud bloqueado por login.
+
+## Montagem das aberturas I1 e I2
+
+O Astra recomendou dois takes isolados da frase exata “Olá, eu sou a Ana.” com a mesma referência N1, em vez de adicionar warmup ou montar um terceiro híbrido com B. I1 usa seed 20261015; I2 usa 20261016; os demais parâmetros ficam iguais. Isso gera opções de apresentação, sem alegar causa comprovada de cold-start. As duas sínteses locais foram autorizadas previamente, offline, com limite de 180 s cada e sem retry.
+
+O corte foi escolhido na passagem por zero próxima ao meio da pausa real de 2,171–2,593 s, revista na onda e no espectrograma. A partir da amostra 57.256 do WAV N1, foram congeladas 198.105 amostras (PCM SHA `05043a594315e04a2a3f58d99cff0f7601131c3b82304fdc8b59cd1b313db2aa`). Isso preserva também cerca de 208 ms da pausa anterior à entrada de “Uma”. O root conferiu o sufixo dos dois WAVs completos: igualdade exata, zero amostras do corpo modificadas. O N1 de origem continua intacto.
+
+O ganho foi aplicado apenas nas novas aberturas (+6,53 dB em I1 e +5,78 dB em I2). Houve fade somente nos últimos 10 ms quietos da intro e preenchimento para cauda quieta de 150 ms. O corpo não recebe ganho, fade, crossfade ou alteração de tempo. Os MP3s são novos encodes; a igualdade de amostras se refere ao PCM/WAV.
+
+| Versão | Duração completa | SHA do WAV | SHA do MP3 |
+|---|---|---|---|
+| I1 | 10,271583 s |`5e746f7eee1832a3105e0e85928235d85a95dae20ab74e791b5522857fff3f06`|`cc43336ab4dbc9e456de29eda29239e7f9ec41fdec7c758d608ba615aea46ecb`|
+| I2 | 9,858042 s |`a2a95ca82f0139f2c5146ab3454aae48155c1012e3e055b62ee9dd2e50913e0f`|`ec8cf845914359f2a06d8520185bb0f03cff05215f67a04ba89f34a68b535007`|
+
+As duas terminaram por EOS, com sampler 1.5/contexto 64 e sem clipping. Whisper local reconheceu a frase exata nas duas, sem texto esperado no prompt. Os tempos de palavras são aproximados e não julgam entonação. A página nova oferece os dois completos, N1 anterior e referência humana. Os 10 links locais e as quatro mídias foram verificados no Chrome normal, sem erro e com durações esperadas. A escolha perceptiva foi solicitada ao usuário. Não houve escuta direta pelo agente.
+
+Ainda não há áudio completo aceito para o próximo vídeo. O plano de render v3 continua apenas como preparo histórico; não deve ser executado com N1 inteiro nem receber um aceite fictício. Depois da escolha, deverá vincular o WAV composto e seu hash reais. A instância antiga continua sem exclusão confirmada por falta do login, e nenhum novo render pago foi iniciado nesta etapa.
+
+O root verificou os 50 arquivos do manifesto desta rodada por tamanho e SHA, sem divergências (`ROOT-MANIFESTO-CHECK.json`). O runtime temporário foi removido e os caches de origem preservados. A aba e o servidor de revisão temporários foram encerrados; a porta 61365 ficou sem listener. O HTML local e seus áudios continuam disponíveis. A última conferência da Verda ainda mostrou “Sign in”; a aba de login foi mantida para o usuário.
