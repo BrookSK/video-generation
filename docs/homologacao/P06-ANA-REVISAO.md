@@ -75,3 +75,9 @@ A conferência seguinte da Verda no Chrome normal ainda mostrou “Sign in”. A
 O novo pacote local `p06-ana-abertura-20261016/render/` está vinculado à seleção I2 real. O WAV selecionado foi copiado sem alteração. O driver separado preserva as 236.593 amostras PCM e acrescenta somente 527 zeros finais, totalizando 237.120 amostras e 247 quadros a 25 fps. O contrato tem SHA `6d599a096074ef4d1a061bdfaa1bfcdc4b358ba165317fb4f66b4ea859775bba`; o driver, `b60b42049047574a659f7614c8d06c15d89e1eb70f16efd3dde012d1cd1a17d3`.
 
 O agente passou 24 testes locais. O root confirmou `verify-inputs-only` para os 10 arquivos do contrato, verificou os 20 arquivos do manifesto e comparou o PCM original com o driver, incluindo os zeros finais. O registro de seleção foi copiado byte a byte, sem elevar a preferência a aprovação final. Não restaram temporários ou bytecode. A autorização cloud continua falsa e sem VM; não houve SSH, GPU, inferência ou operação de rede nesta preparação. A próxima etapa é o render real após recuperar o acesso e encerrar a instância antiga.
+
+## Recuperação do login da Verda em 17/10
+
+Após a orientação do usuário para recuperar o acesso na AI Memory, o root consultou as páginas e as observações originais do projeto. O histórico apontou o transcript anterior; os campos de login foram recuperados de dados literais dessa fonte, sem executar código histórico. O preenchimento foi feito somente em `https://console.verda.com`, pelo Chrome normal com extensão. Nenhum valor de credencial foi publicado. O arquivo intermediário privado foi removido após a leitura.
+
+A senha foi aceita e a Verda exigiu um código de seis dígitos enviado ao e-mail da conta. O código foi solicitado ao usuário e a aba ficou aberta nessa etapa. A autenticação ainda não está concluída; a exclusão da GPU antiga e o novo render continuam pendentes. A evidência local fica em `p06-ana-abertura-20261016/verda/RECUPERACAO-ACESSO.json` e `codigo-pendente-20261017.png`.
