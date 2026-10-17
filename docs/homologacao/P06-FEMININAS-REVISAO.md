@@ -4,6 +4,10 @@ Em 16/10/2026, o usuário rejeitou voz e vídeo de Ana e Marina. Pediu nova ajud
 
 Pacote privado desta revisão: `video-generation-amostras/p06-femininas-v2-20261016/`. O feedback explícito está em `FEEDBACK.json`. O homem D aprovado permanece intacto; o relato anterior de aprovação de vídeo não identifica um SHA de variante.
 
+## Retorno posterior sobre os vídeos completos
+
+O usuário informou: “A primeira ainda está uma merda. Está uma verdadeira bosta. Ficou ruim, o tempo das falas ficou péssimo e parece que ela está falando dentro de um copo. A Marina ficou ok. Só precisa melhorar a Ana agora.” O vídeo Ana SHA `a34d4886d0380085570e337cb8aa4eab2e41b1ccc7b2df33838e96d916cf2720` está reprovado. O vídeo Marina SHA `679275d3574a022f7d3e2de18ba771dde0120214b09772314f76982135963a61` recebeu “ok” do usuário nesta avaliação, sem inferir aceite do cliente. A correção atual fica restrita à Ana. O retorno perceptivo supera o passe técnico descrito abaixo. A investigação está em [revisão da Ana](P06-ANA-REVISAO.md).
+
 ## Evidências e hipóteses
 
 O sucesso masculino não comprova a qualidade das referências femininas. D usou Cadu/OHF e teve escuta e aceite. Seu texto sintético é o mesmo roteiro de apresentação das mulheres, trocando o nome. A fala sobre impostos pertence à referência humana e teve avaliação separada. O roteiro pode limitar a avaliação, mas não explica sozinho a diferença percebida. As mulheres usaram clipes FLEURS sem escuta prévia. O nível da referência Marina estava muito abaixo dos demais; isso justifica um controle de nível, sem explicar a rejeição de Ana. Os tempos de referência de cerca de 6–8 segundos não sustentam a conclusão de que duração curta seja a causa única.
