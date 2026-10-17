@@ -81,3 +81,13 @@ O agente passou 24 testes locais. O root confirmou `verify-inputs-only` para os 
 Após a orientação do usuário para recuperar o acesso na AI Memory, o root consultou as páginas e as observações originais do projeto. O histórico apontou o transcript anterior; os campos de login foram recuperados de dados literais dessa fonte, sem executar código histórico. O preenchimento foi feito somente em `https://console.verda.com`, pelo Chrome normal com extensão. Nenhum valor de credencial foi publicado. O arquivo intermediário privado foi removido após a leitura.
 
 A senha foi aceita e a Verda exigiu um código de seis dígitos enviado ao e-mail da conta. O código foi solicitado ao usuário e a aba ficou aberta nessa etapa. A autenticação ainda não está concluída; a exclusão da GPU antiga e o novo render continuam pendentes. A evidência local fica em `p06-ana-abertura-20261016/verda/RECUPERACAO-ACESSO.json` e `codigo-pendente-20261017.png`.
+
+## Acesso restabelecido e saldo observado em 17/10
+
+O usuário pediu uma nova entrada para solicitar o código ao cliente. A tentativa de reenvio na tela antiga voltou a Sign in. O root preencheu novamente o acesso já recuperado, diretamente no Chrome normal; o painel autenticado abriu sem submissão de código pelo agente. Não é mais necessário pedir código para essa entrada já concluída. A aba autenticada foi mantida aberta.
+
+O saldo observado é US$ 0,60. A lista de instâncias está vazia. O detalhe da instância `bb9573ed-d1a5-4ade-aca0-63faa1f1940b` mostra `Discontinued` e o evento `Instance deleted`, exibido em 17/10 às 01:20:24 no horário do painel. A exclusão já havia ocorrido; não foi executada nesta ação. Isso substitui o estado anterior de exclusão não confirmada.
+
+A lista de volumes ativos também está vazia. Na área recuperável, os originais `OS-fHuXBon4` (`d0c605d0-7589-42f1-95ca-048a8a7e8fb7`) e `p06-avatar-d-fresh-20261015` (`b1bc8e09-8ab6-419e-902d-b4a7aa23a625`) aparecem `Deleted`, com cerca de 86 horas restantes e custo de restauração exibido de US$ 0,67 cada. O clone temporário FIN-02 também já aparece `Deleted`. Não se atribuiu causa ou autoria às exclusões. Nenhum volume foi restaurado, excluído ou purgado pelo root nesta ação. É necessária recarga para restaurar os volumes e executar o próximo render; não foi iniciada operação paga com saldo insuficiente.
+
+O retorno posterior “fico top” confirma a aprovação da voz I2 pelo usuário, sem representar aprovação do novo vídeo ou do cliente. Os arquivos de áudio e o contrato local permanecem intactos. O estado conferido e as capturas estão em `p06-ana-abertura-20261016/verda/ACESSO-RESTABELECIDO.json`.
