@@ -65,3 +65,13 @@ As duas terminaram por EOS, com sampler 1.5/contexto 64 e sem clipping. Whisper 
 Ainda não há áudio completo aceito para o próximo vídeo. O plano de render v3 continua apenas como preparo histórico; não deve ser executado com N1 inteiro nem receber um aceite fictício. Depois da escolha, deverá vincular o WAV composto e seu hash reais. A instância antiga continua sem exclusão confirmada por falta do login, e nenhum novo render pago foi iniciado nesta etapa.
 
 O root verificou os 50 arquivos do manifesto desta rodada por tamanho e SHA, sem divergências (`ROOT-MANIFESTO-CHECK.json`). O runtime temporário foi removido e os caches de origem preservados. A aba e o servidor de revisão temporários foram encerrados; a porta 61365 ficou sem listener. O HTML local e seus áudios continuam disponíveis. A última conferência da Verda ainda mostrou “Sign in”; a aba de login foi mantida para o usuário.
+
+## Escolha do usuário: abertura 2
+
+O retorno literal foi “ABERTURA 2 FICOU MELHOR”. I2 fica selecionada como entrada para o próximo teste de vídeo, com o mesmo corpo N1 preservado. O feedback compara as aberturas; não declara aprovação final da entrega nem do cliente. O registro `p06-ana-abertura-20261016/SELECAO-USUARIO.json` vincula o MP3 apresentado e o WAV composto aos hashes I2 da tabela acima. N1 original não recebe aceite.
+
+A conferência seguinte da Verda no Chrome normal ainda mostrou “Sign in”. A instância antiga permanece sem exclusão confirmada. Nenhum novo render pago foi iniciado.
+
+O novo pacote local `p06-ana-abertura-20261016/render/` está vinculado à seleção I2 real. O WAV selecionado foi copiado sem alteração. O driver separado preserva as 236.593 amostras PCM e acrescenta somente 527 zeros finais, totalizando 237.120 amostras e 247 quadros a 25 fps. O contrato tem SHA `6d599a096074ef4d1a061bdfaa1bfcdc4b358ba165317fb4f66b4ea859775bba`; o driver, `b60b42049047574a659f7614c8d06c15d89e1eb70f16efd3dde012d1cd1a17d3`.
+
+O agente passou 24 testes locais. O root confirmou `verify-inputs-only` para os 10 arquivos do contrato, verificou os 20 arquivos do manifesto e comparou o PCM original com o driver, incluindo os zeros finais. O registro de seleção foi copiado byte a byte, sem elevar a preferência a aprovação final. Não restaram temporários ou bytecode. A autorização cloud continua falsa e sem VM; não houve SSH, GPU, inferência ou operação de rede nesta preparação. A próxima etapa é o render real após recuperar o acesso e encerrar a instância antiga.
