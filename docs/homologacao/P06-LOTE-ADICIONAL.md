@@ -110,3 +110,20 @@ O Astra revisou o protocolo, os retratos, a execução paralela e folhas reais n
 
 
 O pacote técnico preserva scripts, planos anteriores às chamadas pagas, recibos, modelos de configuração, entradas, outputs, métricas e limitações. O ZIP destinado ao cliente exclui esses registros de operação. O manifesto geral é regenerado somente após encerrar os trabalhos dos agentes. A entrega adicional foi concluída tecnicamente; o aceite humano das novas vozes/vídeos e os demais critérios de homologação integral continuam abertos.
+
+## Entrega consolidada das quatro personas — 19/10/2026
+
+Os quatro MP4s para revisão do cliente estão em `/Users/felipebianchini/Developer/video-generation-amostras/p06-quatro-personas-cliente-20261019/`. Esta seleção usa a Marina revisada e a Ana I2 descritas em `P06-FEMININAS-REVISAO.md` e `P06-ANA-REVISAO.md`; as versões femininas do lote original acima foram substituídas para esta entrega.
+
+| Persona | Arquivo consolidado | Origem em `video-generation-amostras/` | Duração |
+|---|---|---|---|
+| Masculino original | `01-masculino-original.mp4` | `p06-dinamica-20261015/gestos-run/render/out/video-D-gestos-zoom.mp4` | 9,84 s |
+| Rafael | `02-rafael.mp4` | `p06-novos-avatares-20261016/entrega/video-rafael.mp4` | 9,92 s |
+| Marina revisada | `03-marina.mp4` | `p06-femininas-v2-20261016/entrega/video-marina.mp4` | 9,76 s |
+| Ana I2 | `04-ana.mp4` | `p06-ana-video-I2-20261019/entrega/video-ana.mp4` | 9,88 s |
+
+O ZIP `quatro-personas-para-cliente.zip` contém somente os quatro MP4s, com 18.849.054 bytes e SHA-256 `d95b872789b2014011df57fef49c732f2bf782ee9a21677ab09338326b50f712`. O `MANIFESTO.json`, fora do ZIP, registra origens, hashes, tamanhos e metadados medidos.
+
+As quatro origens passaram pela decodificação completa sem erro. Cada cópia e cada entrada do ZIP teve seu SHA-256 conferido contra a origem e os registros anteriores. O CRC do ZIP também passou. Os quatro vídeos têm 1080×1920, 25 fps, H.264 e áudio AAC. Não houve reencode, síntese ou uso de GPU nesta consolidação.
+
+O pacote está preparado para a revisão final do cliente. A conferência de integridade e formato não certifica naturalidade audiovisual nem encerra a homologação integral da P06.
