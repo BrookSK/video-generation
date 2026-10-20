@@ -6,6 +6,46 @@ prompt, a forma de geração ou uma limitação técnica. Encaminhou um roteiro 
 videoaula para avaliar como ele se encaixa. Isso não registra aceite final das
 quatro personas nem uma contratação de funcionalidades novas.
 
+## Retorno posterior: prioridade é a naturalidade do vídeo puro
+
+Nas mensagens de 20/10, entre 13:37 e 13:45, encaminhadas pelo usuário, o cliente
+esclareceu que um fundo simples é suficiente. O problema relatado é rigidez nas
+falas, expressões e interpretação. Considera as demais partes do roteiro
+evoluções posteriores, a alinhar depois de concluir a naturalidade.
+
+Portanto, a proposta de prova com demonstração e montagem, descrita na análise
+inicial abaixo, **não é o próximo passo da correção atual**. A referência para
+o trabalho passa a ser o vídeo puro do avatar. Voz, sincronia, movimentos e
+expressões naturais continuam sendo critérios do escopo contratado. Não há
+aceite novo nem autorização presumida para ampliar a aplicação.
+
+O retorno literal está em `FEEDBACK-NATURALIDADE.json` no pacote privado. Em
+resposta à consulta desta rodada, o usuário confirmou: **vale para o conjunto
+dos quatro vídeos**. Não se deve restringir a correção à Ana ou considerar os
+masculinos fora da avaliação. Ainda não há instantes específicos associados à
+crítica. Ela não demonstra por si só se a causa está no TTS, no condicionamento
+visual ou na combinação. As aprovações anteriores ficam preservadas como
+histórico, sem invalidar o retorno atual sobre o conjunto.
+
+A auditoria dos testes anteriores confirma que CFG de áudio e enquadramento
+já foram comparados. Houve gesto e variação facial nas imagens examinadas, mas
+isso não prova fluidez, intenção ou coerência com a fala em reprodução contínua.
+Os registros da Ana I2 e das três provas deixam esse limite explícito. Repetir
+o mesmo ajuste ou declarar melhora por SyncNet não resolveria essa lacuna.
+
+A próxima comparação deve começar pela percepção da fala isolada e depois
+do conjunto audiovisual, usando trechos identificados e os mesmos insumos.
+Assim é possível preservar o que funciona e alterar uma direção de atuação
+ou uma configuração por vez. A ausência de corte, trilha e zoom permite avaliar
+a interpretação diretamente. Ainda não houve inferência nova nesta retomada.
+
+`REVISAO-NATURALIDADE.html`, no pacote privado, prepara esse contraste com os
+quatro MP4s enviados: cada controle de áudio e de vídeo aponta para o mesmo
+arquivo, sem ressíntese, extração ou reencode. Os hashes foram conferidos contra
+o manifesto da entrega. A página apenas organiza a avaliação das mídias
+existentes; não apresenta melhora já produzida. O Astra revisou esta prioridade
+em `ASTRA-NATURALIDADE-PRIORIDADE.md`, preservando o parecer anterior.
+
 ## Material e verificação
 
 O pacote recebido contém três OGGs, de 21,82 s, 60,90 s e 14,92 s, e um PDF de
