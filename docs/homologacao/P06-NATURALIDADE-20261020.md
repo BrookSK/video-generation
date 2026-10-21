@@ -1,6 +1,68 @@
 # P06 — testes de naturalidade em 20/10/2026
 
-## Retomada de20/10,21h27 BRT — pendência real
+## Retomada de 20/10, 23h — acesso resolvido e nova Ana preparada
+
+O acesso foi concluído pelo usuário no Brave. O console autenticado confirmou
+saldo de **US$ 0,20**, lista de instâncias vazia, nenhum volume ativo e cobrança
+atual de **US$ 0,00/h**. O detalhe da VM
+`e722d027-731e-4df1-aa8d-2932a30350ee` registra `Instance deleted` em 20/10 às
+22:40:07 BRT, ou 21/10 às 01:40:07 UTC. Não foi executada uma exclusão nesta
+retomada. Esse estado substitui a pendência de confirmação cloud da seção abaixo;
+o atraso anterior no encerramento permanece registrado.
+
+O histórico de cobrança mostra **US$ 3,77** para a primeira VM e **US$ 9,04**
+para a VM da Ana compacta: **US$ 12,81 só de compute**. O teto anterior de
+US$ 12,50 foi ultrapassado em pelo menos US$ 0,31, antes do armazenamento.
+Não usar as reservas de US$ 10,39 como custo real. O custo acumulado de US$ 6,94
+do clone cobre desde 16/10 e não foi atribuído integralmente à rodada de 20/10.
+A parcela exata de armazenamento desta rodada continua sem conciliação completa.
+
+O clone `0338dfad-930b-479f-af0b-81b09ff54c0d` está `Deleted`, recuperável,
+com 94 horas restantes e restauração cotada em US$ 0,07 na consulta. Os dois
+volumes originais aparecem recuperáveis por cerca de uma hora. O usuário foi
+informado desse prazo. Não houve restauração, alteração dos originais, criação
+de compute ou recarga. A A100 de 40 GB `1A100.40S.22V`, em FIN-02, estava
+disponível por US$ 1,531/h, com cobrança em blocos de dez minutos. A consulta
+não contratou recursos. Valores e capacidade precisam de nova conferência
+antes de uma execução posterior.
+
+A nova tentativa `ana-wide` está preparada no pacote privado
+`visual-ana-aberta-low-vram/`, contrato SHA256
+`34d8f039a95f47975411bf9918342800d09b2d1866abbb115b17ee3442424b74`.
+Muda apenas a PNG de entrada para a referência mais aberta já existente,
+`ana-current-prepared.png`, de SHA256
+`e14dde8f4722c8f3294a6089cd51caa5ae049ed4806fa4e2e10268ba7649055b`.
+O request e o WAV são idênticos aos da Ana compacta. Prompt, seed, CFG, pesos,
+passos, shift e perfil de memória foram preservados. A imagem foi aberta e
+inspecionada. É um experimento de enquadramento, sem garantia de correção ou
+aprovação de naturalidade.
+
+Os 20 arquivos do contrato foram conferidos e **13 testes CPU passaram**.
+A prova de transporte confirmou a presença de `ana-wide/out` vazio e validou
+os arquivos depois da extração. Uma cópia temporária passou no bind de uma
+identidade simulada e recusou uma segunda vinculação; isso não criou uma VM.
+O pacote original continua sem VM e com autorização falsa. O preparo de QA
+aceita `ana-wide` somente com seu recibo real e limpeza confirmada; o recibo
+antigo foi recusado antes de criar mídia. Quatro contratos de QA anteriores
+continuaram válidos.
+
+Os hashes e os metadados dos três MP4s finais existentes foram conferidos
+novamente. A entrega permanece **parcial, três de quatro**. A Ana aberta ainda
+não foi gerada. Não houve nova escuta, reprodução contínua ou aprovação humana.
+O runtime CPU removido não foi recriado sem uma candidata elegível.
+
+Foi solicitado crédito e um **novo limite adicional de até US$ 3,50** para
+uma única inferência. Essa proposta continua sem autorização. A recarga mínima
+exibida no console é US$ 20; o restante seria saldo da conta, sem autorização
+de consumi-lo nesta tentativa. O limite anterior não foi ampliado por inferência.
+
+Recibos e capturas ficam em `verda/retomada-20261021/`; a confirmação cloud é
+`ESTADO-CONFERIDO.json`. O manifesto da entrega agora referencia esse recibo
+e registra `cloud_cleanup_pending=false`, mantendo os três MP4s e seus hashes.
+O preparo e os testes estão em `visual-ana-aberta-low-vram/CPU-VALIDATION.json`
+e `qa-local/setup/ANA-WIDE-QA-COMPAT.json`.
+
+## Retomada de20/10,21h27 BRT — histórico anterior à confirmação cloud
 
 Há três vídeos exportados e tecnicamente verificados: João, Rafael e Marina. A
 segunda Ana, `ana-compact`, também foi rejeitada. No quadro225,9s, as duas mãos
