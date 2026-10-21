@@ -37,7 +37,8 @@ A próxima comparação deve começar pela percepção da fala isolada e depois
 do conjunto audiovisual, usando trechos identificados e os mesmos insumos.
 Assim é possível preservar o que funciona e alterar uma direção de atuação
 ou uma configuração por vez. A ausência de corte, trilha e zoom permite avaliar
-a interpretação diretamente. Ainda não houve inferência nova nesta retomada.
+a interpretação diretamente. A execução posterior desta correção, com inferência
+nova e QA do vídeo puro, está em [P06 — naturalidade em 20/10](P06-NATURALIDADE-20261020.md).
 
 `REVISAO-NATURALIDADE.html`, no pacote privado, prepara esse contraste com os
 quatro MP4s enviados: cada controle de áudio e de vídeo aponta para o mesmo
@@ -194,8 +195,8 @@ de prazo ou de custo. Também não torna toda crítica de rigidez um pedido extr
 A análise prepara a decisão sobre o resultado esperado e uma prova pequena;
 não altera a receita, os contratos ou a matriz de homologação existente.
 
-Nesta rodada houve leitura, transcrição, análise do código e pesquisa. Não houve
-geração nova de vídeo, síntese de narração, contratação de serviço, operação na
-Verda ou inferência paga de áudio/vídeo. Os quatro arquivos anteriores foram
-preservados. As verificações são documentais e de integridade; não é uma prova
-audiovisual da solução proposta.
+Na análise inicial houve leitura, transcrição, análise do código e pesquisa,
+sem geração de vídeo ou operação na Verda. Depois da instrução do usuário para
+executar os testes, começou a rodada de [naturalidade do vídeo puro](P06-NATURALIDADE-20261020.md).
+Os quatro arquivos enviados anteriormente permanecem preservados. Essa execução
+não implementa a montagem da videoaula descrita no roteiro.
