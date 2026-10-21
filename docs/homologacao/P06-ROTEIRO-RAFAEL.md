@@ -192,6 +192,7 @@ aceite. O shift 5 do card da LoRA não pôde ser testado com esta imagem.
 
 Pronto: falas, voz, imagens 16:9, sete renders, montagem v1 com sincronia medida e
 comparação A/B da cena 2. Entrega privada em
-`p06-roteiro-rafael-20261021/entrega/`. Pendente: escuta humana da v1, decisão
-entre as receitas A e B e aceite do cliente para naturalidade e formato 16:9.
+`p06-roteiro-rafael-20261021/entrega/`. Em 21/10 o usuário assistiu à v1 com som
+e manteve a receita A; a v1 segue para o cliente. Pendente: aceite do cliente
+para naturalidade e formato 16:9.
 Retakes com seed diferente dependem da reconstrução autorizada da imagem do worker.
