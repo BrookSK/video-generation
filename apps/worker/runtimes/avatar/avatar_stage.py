@@ -25,6 +25,9 @@ REQUEST_PATHS = ("image", "audio", "models_dir", "infinitetalk_dir", "out_dir")
 RECIPE_FIELDS = ("size", "sample_steps", "mode", "motion_frame", "max_frame_num", "prompt")
 # Sempre explícitas: os defaults do CLI (texto 5.0, áudio 4.0) não são os da receita.
 GUIDE_FIELDS = ("sample_text_guide_scale", "sample_audio_guide_scale")
+# Opcionais: ausentes, valem os defaults do CLI fixado (seed 42, shift 7 em 480p, cor 1.0).
+# Sem base_seed, um retake com os mesmos insumos repete o mesmo vídeo.
+OPTIONAL_FIELDS = ("base_seed", "sample_shift", "color_correction_strength")
 
 # Pesos em /models/<componente>/<arquivo do manifesto>.
 WAN_DIR = "wan2.1-i2v-14b-480p"
@@ -87,6 +90,17 @@ def check_profile(avatar: dict[str, Any]) -> None:
     for key in GUIDE_FIELDS:
         if not _finite_positive(avatar.get(key)):
             raise StageError(f"{key} precisa ser número finito e positivo ({avatar.get(key)!r})")
+    seed = avatar.get("base_seed")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0):
+        raise StageError(f"base_seed precisa ser inteiro não negativo (recebido {seed!r})")
+    shift = avatar.get("sample_shift")
+    if shift is not None and not _finite_positive(shift):
+        raise StageError(f"sample_shift precisa ser número finito e positivo ({shift!r})")
+    color = avatar.get("color_correction_strength")
+    if color is not None and not (
+        isinstance(color, int | float) and not isinstance(color, bool) and 0 <= color <= 1
+    ):
+        raise StageError(f"color_correction_strength precisa estar entre 0 e 1 ({color!r})")
     if "lora" not in avatar:
         raise StageError("request.recipe_avatar sem lora (null para perfil sem LoRA)")
     lora = avatar["lora"]
@@ -184,6 +198,9 @@ def build_args(request: dict[str, Any]) -> list[str]:
     persistent = avatar.get("num_persistent_param_in_dit")
     if persistent is not None:
         args += ["--num_persistent_param_in_dit", str(persistent)]
+    for key in OPTIONAL_FIELDS:
+        if avatar.get(key) is not None:
+            args += [f"--{key}", str(avatar[key])]
     args += ["--input_json", str(input_json), "--save_file", str(save_file)]
     return args
 

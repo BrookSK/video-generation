@@ -212,6 +212,28 @@ def test_generator_receives_recipe_lora_steps_and_guides_explicitly(tmp_path, lo
         assert "--lora_scale" not in opts
 
 
+@pytest.mark.parametrize("declared", [True, False], ids=["declarados", "omitidos"])
+def test_seed_shift_and_color_reach_generator_only_when_declared(tmp_path, declared):
+    request = _request(tmp_path)
+    if declared:
+        request["recipe_avatar"].update(
+            base_seed=37, sample_shift=5.0, color_correction_strength=0.0
+        )
+    request_path = _write_request(tmp_path, request)
+
+    assert avatar_stage.main([str(request_path), str(tmp_path / "result.json")]) == 0
+
+    argv = json.loads((tmp_path / "out" / "fake_call.json").read_text())["argv"]
+    opts = dict(zip(argv[::2], argv[1::2], strict=True))
+    if declared:
+        # Cor 0.0 desliga a correção; retake com outra seed muda o vídeo.
+        assert opts["--base_seed"] == "37"
+        assert opts["--sample_shift"] == "5.0"
+        assert opts["--color_correction_strength"] == "0.0"
+    else:
+        assert not {"--base_seed", "--sample_shift", "--color_correction_strength"} & set(opts)
+
+
 def _avatar(**changes):
     return lambda request: request["recipe_avatar"].update(changes)
 
@@ -232,6 +254,10 @@ def _lora(**changes):
         (_avatar(sample_steps=0), "sample_steps precisa ser inteiro positivo"),
         (_avatar(sample_text_guide_scale=float("inf")), "sample_text_guide_scale precisa ser"),
         (_avatar(sample_audio_guide_scale=0), "sample_audio_guide_scale precisa ser"),
+        (_avatar(base_seed=-1), "base_seed precisa ser inteiro não negativo"),
+        (_avatar(base_seed=4.2), "base_seed precisa ser inteiro não negativo"),
+        (_avatar(sample_shift=0), "sample_shift precisa ser número finito e positivo"),
+        (_avatar(color_correction_strength=1.5), "color_correction_strength precisa estar"),
         (lambda request: request["recipe_avatar"].pop("lora"), "recipe_avatar sem lora"),
         (_lora(scale=-1.0), "lora.scale precisa ser número finito e positivo"),
         (_lora(file="../../fora.safetensors"), "recipe_avatar.lora fora de models_dir"),
