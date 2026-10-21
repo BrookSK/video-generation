@@ -103,7 +103,7 @@ ociosa, não de render.
 
 Antes da GPU, no Mac:
 
-1. Escuta das seis cenas e da narração completa; trocar tomadas se necessário.
+1. Escuta das seis cenas e da narração completa: aprovada pelo usuário em 21/10.
 2. Imagem mestre 2:1 do Rafael por outpainting, nos dois enquadramentos.
 3. Reconstrução da imagem do worker com o stage novo, mediante autorização.
 

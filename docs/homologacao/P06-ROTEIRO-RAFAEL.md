@@ -53,8 +53,15 @@ mais próxima do Rafael aprovado (154 Hz):
 A transcrição da narração montada corresponde ao roteiro inteiro. A variação de
 entonação por cena fica entre 3,5 e 4,2 semitons, perto da referência (4,0). A
 altura média varia entre 150 e 173 Hz. Essa diferença pode aparecer nos cortes.
-**Nenhum áudio foi ouvido por humano ainda.** Transcrição e F0 não medem
-naturalidade; a escolha final das tomadas é de ouvido.
+**Voz aprovada pelo usuário em 21/10, por escuta da narração completa.** Ele notou
+um leve corte no final de algumas palavras e considerou aceitável. Transcrição e F0
+serviram só como filtro de defeitos.
+
+A síntese rodou no Mac, com MLX, pelo mesmo caminho da voz do Rafael aprovada em
+16/10. Isso mantém a voz igual e não usa GPU paga. Não é a voz de produção: na
+plataforma, o TTS roda no worker CUDA, cuja integração com o Qwen ainda não foi
+homologada. O MLX força repetition penalty 1,5 e o CUDA oficial usa 1,05, então a
+mesma fala pode soar diferente. Essa comparação fica para a homologação do worker.
 
 ## Planos e enquadramento
 
@@ -130,7 +137,7 @@ A cena 5 foi cortada no silêncio de 5,19 a 5,77 s, antes do "Quinto:":
 ## Situação
 
 Pronto: falas, voz das seis cenas, plano de renders, prompt e campos de seed,
-shift e cor no stage de avatar. Pendente: escuta humana das tomadas, imagem 16:9,
+shift e cor no stage de avatar. Pendente: imagem 16:9,
 recarga da Verda, reconstrução autorizada da imagem do worker com o stage novo e
 a execução do [plano de testes](../research/P06-ESPECIALISTAS-20261021.md#plano-de-testes).
 Não há aceite de naturalidade nem do formato 16:9.
