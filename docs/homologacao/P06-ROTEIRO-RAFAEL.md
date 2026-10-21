@@ -9,7 +9,8 @@ do apresentador.
 
 Este documento define falas, voz, planos e renders. A pesquisa e a análise crítica
 que sustentam as escolhas estão em [especialistas em avatar open source](../research/P06-ESPECIALISTAS-20261021.md).
-Não houve inferência de vídeo nesta etapa: a Verda tem US$ 0,20.
+Os renders rodaram em 21/10, depois da recarga da Verda; resultados em
+[Renders de 21/10](#renders-de-2110).
 
 ## Falas
 
@@ -70,15 +71,21 @@ São sete renders de 4 a 10 s, abaixo do limite de 40 s (`max_frame_num` 1000) e
 da zona de deriva de cor do InfiniteTalk. O corte entre cenas troca a imagem a
 cada 4 a 10 s, como fazem editores de talking head.
 
-| Render | Fala | Plano | Seed |
-|---|---|---|---:|
-| 1 | cena 1 | médio, cintura para cima | 42 |
-| 2 | cena 2 | close médio, peito para cima | 11 |
-| 3 | cena 3 | médio | 23 |
-| 4 | cena 4 | close médio | 37 |
-| 5a | cena 5 até "queda." | médio | 41 |
-| 5b | cena 5 desde "Quinto:" | close médio | 53 |
-| 6 | cena 6 | médio | 67 |
+| Render | Fala | Plano |
+|---|---|---|
+| 1 | cena 1 | médio, cintura para cima |
+| 2 | cena 2 | close médio, peito para cima |
+| 3 | cena 3 | médio |
+| 4 | cena 4 | close médio |
+| 5a | cena 5 até "queda." | médio |
+| 5b | cena 5 desde "Quinto:" | close médio |
+| 6 | cena 6 | médio |
+
+O plano previa uma seed por render. A imagem do worker usada
+(`cad3a59e…`) é anterior ao stage que repassa `base_seed` e `sample_shift`, então
+todos os renders usaram a seed 42 e o shift 7 do CLI. Os planos diferem porque
+áudio e imagem diferem. Um retake com os mesmos insumos repete o vídeo até a
+imagem ser reconstruída com o stage novo.
 
 O diagnóstico do vídeo aprovado mostra que as mãos abrem nos ataques de fala depois
 de pausa e se juntam nas pausas e nos trechos de menor energia. A pose de mãos
@@ -99,11 +106,13 @@ inventado. Crop puro vira close de testa a queixo; barras pretas seriam animadas
 pelo modelo. Na finalização, escalar 2:1 para 2160×1080 e cortar 120 px de cada
 lado, sem barras.
 
-Pendente: ferramenta de edição de imagem. O Rafael foi criado com o `image_gen` do
-Codex; a mesma ferramenta faz o outpainting. Alternativa open source: FLUX.1 Fill
-ou Qwen-Image-Edit na própria GPU. Inspecionar mãos, cotovelos e margem antes da
-inferência. Uma pose de repouso assimétrica (uma mão mais baixa) ajuda a quebrar a
-simetria de âncora de telejornal.
+Feito no Mac com SDXL Inpainting (`diffusers/stable-diffusion-xl-1.0-inpainting-0.1`,
+fp16, MPS), tela 1536×768. Plano médio: recorte das linhas 0 a 1290 da foto.
+Close: linhas 70 a 790. A pessoa fica centralizada; a máscara cobre só as
+laterais novas, com 20 px de sobreposição, e os pixels originais são recolocados
+por cima. Três seeds por enquadramento; escolhidas `medio-s1` e `close-s1`, que
+têm o mesmo cenário (janela à esquerda, estante à direita) e junções limpas. A
+pose de repouso continua simétrica: não houve edição de pose.
 
 ## Prompt
 
@@ -134,10 +143,55 @@ A cena 5 foi cortada no silêncio de 5,19 a 5,77 s, antes do "Quinto:":
 `cena-5a.render.wav` (5,64 s, 141 quadros) e `cena-5b.render.wav` (4,62 s,
 116 quadros). As duas metades transcrevem corretamente.
 
+## Renders de 21/10
+
+GPU: 2x H200 SXM5 em FIN-02 (US$ 11,544/h), com o clone
+`p06-novos-cache-fin02-20261016` como disco do sistema. A100 e H100 estavam sem
+estoque em FIN-02; a A100 80 GB de FIN-01 exigiria login no registro de imagens.
+Imagem do worker por digest `cad3a59e…`, sem rede no container, uma fila por GPU.
+VM criada às 17:23 UTC e excluída às 18:12 UTC. Custo: US$ 11,54 de compute
+(lançado como 1 h) e US$ 1,07 de restauração do volume, dentro do teto de US$ 15
+autorizado. O clone voltou para a lixeira restaurável.
+
+| Render | Quadros | Tempo | Offset SyncNet | Confiança |
+|---|---:|---:|---:|---:|
+| 1 | 209 | 703 s (frio) | −3 | 3,2 |
+| 2 | 243 | 801 s (frio) | −3 | 4,0 |
+| 3 | 238 | 653 s | −2 | 4,2 |
+| 4 | 233 | 658 s | −3 | 3,8 |
+| 5a | 141 | 452 s | −2 | 4,8 |
+| 5b | 115 | 459 s | −2 | 3,8 |
+| 6 | 239 | 701 s | −3 | 4,0 |
+| 2-B | 243 | 699 s | −2 | 4,1 |
+
+Na H200 o render levou cerca de 70 s de GPU por segundo de vídeo, com a carga do
+modelo incluída em cada job. Todos os SHA-256 coletados conferem com os da VM.
+
+Sincronia: SyncNet oficial em CPU, crop quadrado fixo no rosto e controles de
+±200 ms recuperados em todos. Com o rosto de cerca de 90 px no plano médio, o
+crop precisa incluir margem (lado de 180 a 210 px no nativo) para a confiança
+passar de 3; crops justos dão leitura instável. Offset negativo significa áudio
+atrasado: a montagem adianta o áudio em 100 ms, e o MP4 final mede 0 a −1 quadro.
+
+Montagem: cada nativo 896×448 é escalado para 2160×1080 e cortado em 1920×1080.
+O áudio de cada plano é o WAV de render aprovado. Resultado: 56,72 s, H.264 e AAC.
+A transcrição Whisper do final corresponde ao roteiro inteiro.
+
+Observação visual: identidade, roupa e cor estáveis entre planos. As mãos abrem
+nos ataques de fala e se unem nas pausas, como no vídeo aprovado. Nas cenas 3 e 6,
+a segunda metade fica mais tempo com as mãos unidas. Cada plano começa e termina
+perto da pose da foto, com o sorriso neutro, então o corte mostra um pequeno
+"reinício" de postura.
+
+Receita B (LoRA I2V rank64 oficial, mesmos passos, CFG e shift 7): mesma
+sincronia e cerca de 30% mais diferença média entre quadros consecutivos (0,69
+contra 0,53, em tons de cinza 224×112). É um indício de mais movimento, não um
+aceite. O shift 5 do card da LoRA não pôde ser testado com esta imagem.
+
 ## Situação
 
-Pronto: falas, voz das seis cenas, plano de renders, prompt e campos de seed,
-shift e cor no stage de avatar. Pendente: imagem 16:9,
-recarga da Verda, reconstrução autorizada da imagem do worker com o stage novo e
-a execução do [plano de testes](../research/P06-ESPECIALISTAS-20261021.md#plano-de-testes).
-Não há aceite de naturalidade nem do formato 16:9.
+Pronto: falas, voz, imagens 16:9, sete renders, montagem v1 com sincronia medida e
+comparação A/B da cena 2. Entrega privada em
+`p06-roteiro-rafael-20261021/entrega/`. Pendente: escuta humana da v1, decisão
+entre as receitas A e B e aceite do cliente para naturalidade e formato 16:9.
+Retakes com seed diferente dependem da reconstrução autorizada da imagem do worker.

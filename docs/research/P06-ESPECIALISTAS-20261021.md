@@ -123,6 +123,11 @@ Total estimado: US$ 10 a 13 com overhead de VM. G1b só vale se não der falta d
 memória; se couber, reduz o tempo de render de todo o resto. G3 muda LoRA, passos e
 shift juntos: é uma receita candidata, não uma ablação.
 
+Execução de 21/10: sem A100 disponível, G1 a G4 rodaram juntos numa 2x H200, uma
+fila por GPU, com os sete planos na receita A e a cena 2 também na receita B.
+G1b ficou de fora (80 GB ou mais não fazem offload). Custo real: US$ 12,61.
+Resultados em [renders de 21/10](../homologacao/P06-ROTEIRO-RAFAEL.md#renders-de-2110).
+
 Critérios por render: integridade de mídia, mãos e rosto no quadro, sincronia por
 SyncNet com controles, junções sem salto, cor estável entre planos. Critério final:
 reprodução contínua com som pelo usuário e pelo cliente.
