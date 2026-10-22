@@ -170,12 +170,20 @@ modelo incluída em cada job. Todos os SHA-256 coletados conferem com os da VM.
 Sincronia: SyncNet oficial em CPU, crop quadrado fixo no rosto e controles de
 ±200 ms recuperados em todos. Com o rosto de cerca de 90 px no plano médio, o
 crop precisa incluir margem (lado de 180 a 210 px no nativo) para a confiança
-passar de 3; crops justos dão leitura instável. Offset negativo significa áudio
-atrasado: a montagem adianta o áudio em 100 ms, e o MP4 final mede 0 a −1 quadro.
+passar de 3; crops justos dão leitura instável. Os nativos medem −2 ou −3 quadros;
+a correção é atrasar o vídeo, repetindo o primeiro quadro de cada plano 2 ou 3
+vezes conforme a medida da cena. A v2 mede 0 quadro nas sete cenas.
 
 Montagem: cada nativo 896×448 é escalado para 2160×1080 e cortado em 1920×1080.
-O áudio de cada plano é o WAV de render aprovado. Resultado: 56,72 s, H.264 e AAC.
-A transcrição Whisper do final corresponde ao roteiro inteiro.
+O áudio de cada plano é o WAV de render aprovado, sem corte. O fim de cada fala
+recebe fade de 60 ms, e um ruído rosa filtrado a cerca de −60 dBFS cobre a faixa
+inteira, no lugar do silêncio digital. Resultado: 56,72 s, H.264 e AAC. A
+transcrição Whisper do final corresponde ao roteiro inteiro.
+
+A v1 adiantava o áudio em 100 ms. Os WAVs das cenas 2, 4 e 6 começam a fala em 20
+a 30 ms, sem o silêncio inicial suposto, então a v1 cortava o início de
+"Primeiro", "Terceiro" e "Lembre-se". Ela também tinha cerca de 7 s de silêncio
+digital absoluto nas pausas. As duas coisas soavam como cortes secos.
 
 Observação visual: identidade, roupa e cor estáveis entre planos. As mãos abrem
 nos ataques de fala e se unem nas pausas, como no vídeo aprovado. Nas cenas 3 e 6,
@@ -193,6 +201,13 @@ aceite. O shift 5 do card da LoRA não pôde ser testado com esta imagem.
 Pronto: falas, voz, imagens 16:9, sete renders, montagem v1 com sincronia medida e
 comparação A/B da cena 2. Entrega privada em
 `p06-roteiro-rafael-20261021/entrega/`. Em 21/10 o usuário assistiu à v1 com som
-e manteve a receita A; a v1 segue para o cliente. Pendente: aceite do cliente
-para naturalidade e formato 16:9.
+e manteve a receita A; a v1 seguiu para o cliente.
+
+Retorno do cliente sobre a v1, por áudio em 21/10: gostou e acha que está no
+caminho; o vídeo completo ficou bem mais natural. Pediu para deixar mais "liso":
+a sincronia labial e o áudio "picado", com cortes secos. A v2 corrige a montagem
+(sincronia pelo vídeo, palavras inteiras, fades e fundo contínuo). Continua igual o
+que vem do TTS: algumas palavras terminam cortadas na própria tomada, e cada cena
+foi sintetizada separadamente, então altura e energia recomeçam a cada cena.
+Pendente: retorno do cliente sobre a v2.
 Retakes com seed diferente dependem da reconstrução autorizada da imagem do worker.
