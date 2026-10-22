@@ -5,6 +5,7 @@ import { logout, onUnauthorized, restoreSession, type SessionUser } from "./api"
 import { Access } from "./screens/Access";
 import { Avatars } from "./screens/Avatars";
 import { History } from "./screens/History";
+import { Identity } from "./screens/Identity";
 import { NewVideo } from "./screens/NewVideo";
 import { VideoResult } from "./screens/VideoResult";
 import { Login } from "./screens/Login";
@@ -14,13 +15,21 @@ import { BrandMark, BrandName, Icon, initials, type IconName } from "./ui";
 
 const HOME = "/novo-video";
 
-type NavItem = { to: string; label: string; icon: IconName };
+type NavItem = { to: string; label: string; icon: IconName; end?: boolean };
 
 const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   { title: "Vídeos", items: [
     { to: "/novo-video", label: "Novo vídeo", icon: "video" },
     { to: "/historico", label: "Histórico", icon: "history" },
   ] },
+  {
+    title: "Aulas",
+    items: [
+      { to: "/aulas/nova", label: "Nova aula", icon: "plus" },
+      { to: "/aulas", label: "Aulas", icon: "lesson", end: true },
+      { to: "/identidade", label: "Identidade", icon: "brand" },
+    ],
+  },
   {
     title: "Biblioteca",
     items: [
@@ -75,7 +84,7 @@ function Shell({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }
               <div key={group.title} className="nav-section">
                 <div className="nav-group">{group.title}</div>
                 {group.items.map((item) => (
-                  <NavLink key={item.to} to={item.to} title={item.label}>
+                  <NavLink key={item.to} to={item.to} title={item.label} end={item.end ?? false}>
                     <Icon name={item.icon} />
                     <span className="label">{item.label}</span>
                   </NavLink>
@@ -160,6 +169,7 @@ export function App() {
         <Route path="/novo-video" element={<NewVideo />} />
         <Route path="/historico" element={<History />} />
         <Route path="/videos/:id" element={<VideoResult />} />
+        <Route path="/identidade" element={<Identity />} />
         <Route path="/avatares" element={<Avatars />} />
         <Route path="/cenarios" element={<Scenes />} />
         <Route path="/cenarios/novo" element={<SceneEditor />} />

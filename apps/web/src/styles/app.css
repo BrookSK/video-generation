@@ -439,3 +439,14 @@ input, textarea { caret-color: var(--c-ink); }
   .job-state { justify-items: start; }
   .result-state { padding: 0; }
 }
+
+/* Aulas: identidade visual, editor de cenas e acompanhamento. */
+.chip.st-assembling { background: var(--c-tally-soft); color: var(--c-tally-ink); }
+.chip.st-assembling .dot { background: var(--c-tally); animation: tally-pulse 1.2s var(--ease-inout) infinite; }
+.dlg-foot.spread { justify-content: space-between; flex-wrap: wrap; align-items: center; }
+.color-field { display: flex; gap: var(--sp-2); align-items: center; }
+.color-field .input { width: 9.5em; min-width: 0; }
+.brand-card { position: relative; flex: 1; display: grid; place-content: center; justify-items: center; gap: var(--sp-4); min-height: 300px; padding: var(--sp-6); border-radius: var(--r-s); background: var(--c-stage-2); overflow: hidden; }
+.brand-card img { max-width: 60%; max-height: 140px; object-fit: contain; }
+.brand-card i { width: 25%; min-width: 48px; height: 6px; border-radius: 3px; background: var(--c-tally); }
+.brand-card-empty { color: var(--c-stage-muted); font-weight: var(--fw-semibold); }
