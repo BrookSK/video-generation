@@ -10,6 +10,8 @@ type Field = "logo" | "background_color" | "accent_color";
 type Errors = Partial<Record<Field | "form", string | undefined>>;
 
 const ACCEPTED_TYPES = ["image/png", "image/jpeg"];
+const MUSIC_TYPES = ".mp3,.wav,.m4a,.ogg,audio/mpeg,audio/wav,audio/mp4,audio/ogg";
+const MAX_MUSIC_BYTES = 20 * 1024 * 1024;
 const FIELDS: Field[] = ["logo", "background_color", "accent_color"];
 const COLOR_MESSAGE = "Use uma cor no formato #RRGGBB.";
 // Cores iniciais só para a prévia antes do primeiro cadastro.
@@ -78,6 +80,9 @@ export function Identity() {
   const [notice, setNotice] = useState<string>();
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
+  const [musicBusy, setMusicBusy] = useState(false);
+  const [musicError, setMusicError] = useState<string>();
+  const [musicNotice, setMusicNotice] = useState<string>();
 
   function apply(identity: BrandIdentity) {
     setSaved(identity);
@@ -115,6 +120,27 @@ export function Identity() {
     setFile(accepted ? picked : null);
     setNotice(undefined);
     setErrors((current) => ({ ...current, logo: accepted ? undefined : "Envie o logo em PNG ou JPEG." }));
+  }
+
+  // A trilha tem rota própria: salvar ou remover não mexe no logo nem nas cores em edição.
+  async function changeMusic(method: "PUT" | "DELETE", file?: File) {
+    if (file && file.size > MAX_MUSIC_BYTES) {
+      setMusicError("A trilha passa do limite de 20 MB.");
+      return;
+    }
+    const body = file ? new FormData() : undefined;
+    if (file) body!.append("music", file, file.name);
+    setMusicBusy(true);
+    setMusicError(undefined);
+    setMusicNotice(undefined);
+    try {
+      setSaved(await request<BrandIdentity>(method, "/panel/brand-identity/music", body));
+      setMusicNotice(file ? "Trilha salva. Ela vale para as aulas criadas a partir de agora." : "Trilha removida. As próximas aulas saem sem trilha.");
+    } catch (failed) {
+      setMusicError(failure(failed));
+    } finally {
+      setMusicBusy(false);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -227,6 +253,45 @@ export function Identity() {
                 setErrors((current) => ({ ...current, accent_color: undefined }));
               }}
             />
+            <div className={musicError ? "field music-field is-invalid" : "field music-field"}>
+              <span className="field-label">Trilha de fundo</span>
+              {saved.music_url && (
+                <div className="field-row">
+                  <audio controls preload="none" src={saved.music_url} aria-label="Trilha de fundo atual" />
+                  <button className="btn btn-sm btn-quiet" type="button" disabled={musicBusy} onClick={() => void changeMusic("DELETE")}>
+                    Remover trilha
+                  </button>
+                </div>
+              )}
+              <label className={musicError ? "drop drop-sm is-invalid" : "drop drop-sm"}>
+                <b>{musicBusy ? "Enviando trilha…" : saved.music_url ? "Trocar a trilha" : "Escolha a trilha"}</b>
+                <span className="hint" id="id-music-hint">
+                  {saved.logo_url
+                    ? "Opcional. MP3, WAV, M4A ou OGG, até 20 MB. Toca baixa na aula e abaixa mais quando há fala."
+                    : "Salve o logo e as cores antes de enviar a trilha."}
+                </span>
+                <input
+                  type="file"
+                  name="music"
+                  accept={MUSIC_TYPES}
+                  aria-label="Trilha de fundo"
+                  disabled={musicBusy || !saved.logo_url}
+                  aria-invalid={musicError ? true : undefined}
+                  aria-describedby={musicError ? "id-music-hint id-music-err" : "id-music-hint"}
+                  onChange={(event) => {
+                    const picked = event.currentTarget.files?.[0];
+                    if (picked) void changeMusic("PUT", picked);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              {musicError && <FieldError id="id-music-err" message={musicError} />}
+              {musicNotice && (
+                <p className="note" role="status">
+                  {musicNotice}
+                </p>
+              )}
+            </div>
             {errors.form && (
               <div role="alert">
                 <FieldError id="id-form-err" message={errors.form} />

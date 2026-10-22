@@ -3,21 +3,49 @@ import { Link, useNavigate } from "react-router";
 
 import { ApiError, request } from "../api";
 import { failure, type AspectRatio, type GenerationConfig } from "../jobs";
-import { MAX_SCENES, MIN_SCENES, SHOT_LABEL, type BrandIdentity, type LessonCreated, type NewLessonInput, type Shot } from "../lessons";
+import {
+  MAX_SCENES,
+  MAX_TOPIC_CHARS,
+  MAX_TOPICS,
+  MIN_SCENES,
+  SHOT_LABEL,
+  type BrandIdentity,
+  type LessonCreated,
+  type LessonImage,
+  type NewLessonInput,
+  type Shot,
+} from "../lessons";
 import { FieldError, Icon } from "../ui";
 import type { Avatar } from "./AvatarDialog";
 import type { Scene } from "./Scenes";
 
-type Draft = { key: number; text: string; shot: Shot };
+type Draft = { key: number; text: string; shot: Shot; topics: string; image: (LessonImage & { name: string }) | null; uploading: boolean };
+type SceneField = "text" | "topics" | "image";
 type Catalog = { avatars: Avatar[]; scenes: Scene[]; config: GenerationConfig; identity: BrandIdentity };
 
 let nextKey = 0;
-const draft = (): Draft => ({ key: nextKey++, text: "", shot: "medio" });
+const draft = (): Draft => ({ key: nextKey++, text: "", shot: "medio", topics: "", image: null, uploading: false });
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const SERVER_FIELD: Record<string, SceneField> = { script_text: "text", topics: "topics", image_file_id: "image" };
 
-/** Campo do servidor "scenes.N.script_text" vira o índice N; outros campos ficam no formulário. */
-function sceneIndex(field: string | undefined): number | undefined {
-  const match = field?.replace(/^body\./, "").match(/^scenes\.(\d+)\.script_text$/);
-  return match ? Number(match[1]) : undefined;
+/** Um tópico por linha; linhas em branco não contam. O texto do tópico vai como foi escrito. */
+const topicLines = (text: string) => text.split("\n").filter((line) => line.trim());
+
+function topicsError(text: string, position: number): string | undefined {
+  const topics = topicLines(text);
+  if (topics.length > MAX_TOPICS) return `Cena ${position}: no máximo ${MAX_TOPICS} tópicos.`;
+  const long = topics.findIndex((topic) => Array.from(topic).length > MAX_TOPIC_CHARS);
+  return long >= 0 ? `Cena ${position}: o tópico ${long + 1} passa de ${MAX_TOPIC_CHARS} caracteres.` : undefined;
+}
+
+/** Campo do servidor "scenes.N.<campo>" vira a cena N e o campo da tela; "music_enabled", a trilha. */
+function errorKey(field: string | null, drafts: Draft[]): string | undefined {
+  const name = field?.replace(/^body\./, "");
+  if (name === "music_enabled") return "music";
+  const match = name?.match(/^scenes\.(\d+)\.(\w+)$/);
+  const item = match ? drafts[Number(match[1])] : undefined;
+  const kind = match ? SERVER_FIELD[match[2]!] : undefined;
+  return item && kind ? `${item.key}:${kind}` : undefined;
 }
 
 export function NewLesson() {
@@ -28,7 +56,9 @@ export function NewLesson() {
   const [sceneId, setSceneId] = useState("");
   const [format, setFormat] = useState<AspectRatio>("9:16");
   const [drafts, setDrafts] = useState<Draft[]>(() => [draft(), draft()]);
-  const [sceneErrors, setSceneErrors] = useState<Record<number, string>>({});
+  const [music, setMusic] = useState(false);
+  // Erros por campo: "<chave da cena>:text|topics|image" ou "music".
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string>();
   const [sending, setSending] = useState(false);
   const locked = useRef(false);
@@ -54,13 +84,38 @@ export function NewLesson() {
   const scene = catalog?.scenes.find((s) => s.id === sceneId && s.status === "ativo");
   const limit = catalog?.config.max_script_chars;
   const hasIdentity = Boolean(catalog?.identity.logo_url);
+  const hasMusic = Boolean(catalog?.identity.music_url);
   const tooLong = (text: string) => limit != null && Array.from(text).length > limit;
-  const anyTooLong = drafts.some((item) => tooLong(item.text));
+  const anyInvalid = drafts.some((item, index) => tooLong(item.text) || topicsError(item.topics, index + 1));
+  const uploading = drafts.some((item) => item.uploading);
 
-  function update(index: number, change: Partial<Draft>) {
-    setDrafts((current) => current.map((item, i) => (i === index ? { ...item, ...change } : item)));
-    setSceneErrors({});
+  function change(key: number, next: Partial<Draft>) {
+    setDrafts((current) => current.map((item) => (item.key === key ? { ...item, ...next } : item)));
+  }
+
+  function update(index: number, next: Partial<Draft>) {
+    change(drafts[index]!.key, next);
+    setErrors({});
     setFormError(undefined);
+  }
+
+  async function attach(item: Draft, position: number, file: File) {
+    const fail = (message: string) => setErrors((current) => ({ ...current, [`${item.key}:image`]: message }));
+    setErrors(({ [`${item.key}:image`]: _old, ...rest }) => rest);
+    if (!IMAGE_TYPES.includes(file.type)) {
+      fail(`Cena ${position}: envie a imagem em JPEG, PNG ou WebP.`);
+      return;
+    }
+    const body = new FormData();
+    body.append("file", file, file.name);
+    change(item.key, { uploading: true });
+    try {
+      const image = await request<LessonImage>("POST", "/panel/lessons/images", body);
+      change(item.key, { image: { ...image, name: file.name }, uploading: false });
+    } catch (failed) {
+      change(item.key, { uploading: false });
+      fail(failure(failed));
+    }
   }
 
   function move(index: number, offset: number) {
@@ -70,12 +125,12 @@ export function NewLesson() {
       next.splice(index + offset, 0, item!);
       return next;
     });
-    setSceneErrors({});
+    setErrors({});
   }
 
   function remove(index: number) {
     setDrafts((current) => current.filter((_, i) => i !== index));
-    setSceneErrors({});
+    setErrors({});
   }
 
   async function submit(event: FormEvent) {
@@ -84,18 +139,24 @@ export function NewLesson() {
     setFormError(undefined);
     const empty = drafts.findIndex((item) => !item.text.trim());
     if (empty >= 0) {
-      setSceneErrors({ [empty]: `Cena ${empty + 1}: escreva o texto da fala.` });
+      setErrors({ [`${drafts[empty]!.key}:text`]: `Cena ${empty + 1}: escreva o texto da fala.` });
       document.getElementById(`lesson-scene-${empty}`)?.focus();
       return;
     }
-    if (!hasIdentity || anyTooLong || !avatar || !scene || limit == null) return;
+    if (!hasIdentity || anyInvalid || uploading || !avatar || !scene || limit == null) return;
     locked.current = true;
     setSending(true);
     const payload: NewLessonInput = {
       avatar_id: avatar.id,
       scene_id: scene.id,
       aspect_ratio: format,
-      scenes: drafts.map((item) => ({ script_text: item.text, shot: item.shot })),
+      scenes: drafts.map((item) => ({
+        script_text: item.text,
+        shot: item.shot,
+        topics: topicLines(item.topics),
+        image_file_id: item.image?.id ?? null,
+      })),
+      music_enabled: music,
     };
     const fingerprint = JSON.stringify(payload);
     if (intent.current?.fingerprint !== fingerprint) intent.current = { fingerprint, key: crypto.randomUUID() };
@@ -103,8 +164,8 @@ export function NewLesson() {
       const created = await request<LessonCreated>("POST", "/panel/lessons", payload, { idempotencyKey: intent.current.key });
       navigate(`/aulas/${created.id}`, { state: { notice: "Aula na fila. As cenas são geradas uma a uma e depois montadas." } });
     } catch (failed) {
-      const index = failed instanceof ApiError ? sceneIndex(failed.field ?? undefined) : undefined;
-      if (index !== undefined) setSceneErrors({ [index]: failure(failed) });
+      const key = failed instanceof ApiError ? errorKey(failed.field, drafts) : undefined;
+      if (key !== undefined) setErrors({ [key]: failure(failed) });
       else setFormError(failure(failed));
     } finally {
       locked.current = false;
@@ -213,7 +274,10 @@ export function NewLesson() {
                 {drafts.map((item, index) => {
                   const position = index + 1;
                   const count = Array.from(item.text).length;
-                  const error = tooLong(item.text) ? `Cena ${position}: o limite vigente é ${limit} caracteres. Encurte a fala.` : sceneErrors[index];
+                  const error = tooLong(item.text) ? `Cena ${position}: o limite vigente é ${limit} caracteres. Encurte a fala.` : errors[`${item.key}:text`];
+                  const topics = topicLines(item.topics);
+                  const topicsMessage = topicsError(item.topics, position) ?? errors[`${item.key}:topics`];
+                  const imageMessage = errors[`${item.key}:image`];
                   return (
                     <li key={item.key} className="lesson-scene">
                       <div className="field-row">
@@ -260,6 +324,53 @@ export function NewLesson() {
                         </span>
                       </div>
                       {error && <FieldError id={`lesson-error-${index}`} message={error} />}
+                      <div className="field-row">
+                        <label htmlFor={`lesson-topics-${index}`}>Tópicos da cena {position}</label>
+                        <span className="hint" id={`lesson-topics-count-${index}`}>
+                          {topics.length} / {MAX_TOPICS} tópicos
+                        </span>
+                      </div>
+                      <textarea
+                        id={`lesson-topics-${index}`}
+                        className="textarea"
+                        rows={2}
+                        value={item.topics}
+                        placeholder="Opcional. Um tópico por linha."
+                        aria-invalid={topicsMessage ? true : undefined}
+                        aria-describedby={`lesson-topics-count-${index}${topicsMessage ? ` lesson-topics-error-${index}` : ""}`}
+                        onChange={(event) => update(index, { topics: event.target.value })}
+                      />
+                      {topicsMessage && <FieldError id={`lesson-topics-error-${index}`} message={topicsMessage} />}
+                      {item.image ? (
+                        <div className="lesson-image">
+                          <img src={item.image.url} alt={`Imagem da cena ${position}`} />
+                          <span>{item.image.name}</span>
+                          <button className="btn btn-sm btn-quiet" type="button" aria-label={`Remover imagem da cena ${position}`} onClick={() => change(item.key, { image: null })}>
+                            Remover imagem
+                          </button>
+                        </div>
+                      ) : (
+                        <label className={imageMessage ? "drop drop-sm is-invalid" : "drop drop-sm"}>
+                          <b>{item.uploading ? "Enviando imagem…" : "Adicionar imagem"}</b>
+                          <span className="hint" id={`lesson-image-hint-${index}`}>
+                            Opcional. JPEG, PNG ou WebP. Ocupa a tela durante a cena, com o apresentador num quadro menor.
+                          </span>
+                          <input
+                            type="file"
+                            accept={IMAGE_TYPES.join(",")}
+                            aria-label={`Imagem da cena ${position}`}
+                            disabled={item.uploading}
+                            aria-invalid={imageMessage ? true : undefined}
+                            aria-describedby={`lesson-image-hint-${index}${imageMessage ? ` lesson-image-error-${index}` : ""}`}
+                            onChange={(event) => {
+                              const picked = event.currentTarget.files?.[0];
+                              if (picked) void attach(item, position, picked);
+                              event.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+                      )}
+                      {imageMessage && <FieldError id={`lesson-image-error-${index}`} message={imageMessage} />}
                     </li>
                   );
                 })}
@@ -268,6 +379,31 @@ export function NewLesson() {
                 <Icon name="plus" />
                 Adicionar cena
               </button>
+            </fieldset>
+            <fieldset className="generation-step" disabled={sending}>
+              <legend>
+                <span>5</span> Trilha
+              </legend>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={music && hasMusic}
+                  disabled={!hasMusic}
+                  aria-invalid={errors.music ? true : undefined}
+                  aria-describedby={errors.music ? "lesson-music-error" : undefined}
+                  onChange={(event) => {
+                    setMusic(event.currentTarget.checked);
+                    setErrors({});
+                  }}
+                />
+                <span>Tocar a trilha de fundo da identidade, mais baixa enquanto o apresentador fala</span>
+              </label>
+              {!hasMusic && (
+                <p className="note">
+                  A identidade não tem trilha de fundo. <Link to="/identidade">Enviar trilha na Identidade</Link>
+                </p>
+              )}
+              {errors.music && <FieldError id="lesson-music-error" message={errors.music} />}
             </fieldset>
             {limit == null && (
               <p role="status" className="note">
@@ -283,7 +419,7 @@ export function NewLesson() {
               <button
                 className="btn btn-primary btn-lg"
                 type="submit"
-                disabled={sending || !hasIdentity || !avatar || !scene || anyTooLong || limit == null}
+                disabled={sending || uploading || !hasIdentity || !avatar || !scene || anyInvalid || limit == null}
               >
                 <span className="generate-tally" />
                 {sending ? "Enviando…" : "Gerar aula"}

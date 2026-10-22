@@ -457,3 +457,9 @@ input, textarea { caret-color: var(--c-ink); }
 .lesson-scene-tools { display: flex; flex-wrap: wrap; gap: 4px; }
 .lesson-progress { grid-column: 1 / -1; display: grid; gap: var(--sp-4); }
 .lesson-progress h2 { font-size: var(--fs-18); font-weight: var(--fw-bold); }
+.drop.drop-sm { padding: var(--sp-4); }
+.lesson-image { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; padding: var(--sp-2); border: 1px solid var(--c-line); border-radius: var(--r-m); background: var(--c-paper); min-width: 0; }
+.lesson-image img { width: 112px; height: 63px; object-fit: contain; border-radius: var(--r-s); background: var(--c-sunken); flex: none; }
+.lesson-image span { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+.music-field { display: grid; gap: var(--sp-2); }
+.music-field audio { width: 100%; }

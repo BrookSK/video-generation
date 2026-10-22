@@ -9,18 +9,18 @@ import { ANA, apiError, installFakeApi, json, type FakeApi } from "../test/fakeA
 
 const AVATAR = { id: "avatar-active", name: "Helena", status: "ativo", voice: "feminina" };
 const SCENE = { id: "scene-active", name: "Estúdio", status: "ativo", background_color: "#CFE0D6", composition: { "9:16": { scale: 0.8, x: 0.5, y: 1 }, "16:9": { scale: 0.9, x: 0.5, y: 1 } } };
-const IDENTITY: BrandIdentity = { logo_url: "/panel/brand-identity/logo?v=1", background_color: "#0B2545", accent_color: "#F2A541", updated_at: "2026-10-20T12:00:00Z", updated_by: "Ana Souza" };
-const NO_IDENTITY: BrandIdentity = { logo_url: null, background_color: null, accent_color: null, updated_at: null, updated_by: null };
+const IDENTITY: BrandIdentity = { logo_url: "/panel/brand-identity/logo?v=1", music_url: "/panel/brand-identity/music?v=2", background_color: "#0B2545", accent_color: "#F2A541", updated_at: "2026-10-20T12:00:00Z", updated_by: "Ana Souza" };
+const NO_IDENTITY: BrandIdentity = { logo_url: null, music_url: null, background_color: null, accent_color: null, updated_at: null, updated_by: null };
 
 const ID = "lesson-1";
 const scene = (position: number, change: Partial<LessonScene> = {}): LessonScene => ({
-  position, script_text: `Fala ${position}`, shot: position === 2 ? "close" : "medio", job_id: `job-${position}`, status: "queued", stage: null, error: null, ...change,
+  position, script_text: `Fala ${position}`, shot: position === 2 ? "close" : "medio", topics: [], image_url: null, job_id: `job-${position}`, status: "queued", stage: null, error: null, ...change,
 });
 const QUEUED: Lesson = {
   id: ID, status: "queued", status_url: `/panel/lessons/${ID}`, download_url: null,
   avatar_id: AVATAR.id, scene_id: SCENE.id, avatar_name: "Helena", scene_name: "Estúdio", aspect_ratio: "16:9",
   background_color: "#0B2545", accent_color: "#F2A541", requested_by: "Ana Souza", created_at: "2026-10-21T12:00:00Z",
-  finished_at: null, error: null, size_bytes: null, scenes: [scene(1, { status: "ready" }), scene(2, { status: "processing", stage: "render" }), scene(3)],
+  finished_at: null, error: null, size_bytes: null, music_enabled: false, scenes: [scene(1, { status: "ready" }), scene(2, { status: "processing", stage: "render" }), scene(3)],
 };
 const READY: Lesson = {
   ...QUEUED, status: "ready", download_url: `/panel/lessons/${ID}/download`, finished_at: "2026-10-21T12:05:00Z", size_bytes: 3 * 1024 * 1024,
@@ -41,7 +41,7 @@ function setup(path: string, { identity = IDENTITY, lesson = QUEUED }: { identit
       <App />
     </MemoryRouter>,
   );
-  return { api, user: userEvent.setup(), update: (next: Lesson) => { current = next; } };
+  return { api, user: userEvent.setup({ applyAccept: false }), update: (next: Lesson) => { current = next; } };
 }
 
 const posts = (api: FakeApi) => api.requests.filter((r) => r.method === "POST" && r.path === "/panel/lessons");
@@ -97,10 +97,11 @@ describe("Nova aula", () => {
       scene_id: SCENE.id,
       aspect_ratio: "16:9",
       scenes: [
-        { script_text: "Abertura do tema", shot: "medio" },
-        { script_text: "  Detalhe!\n", shot: "close" },
-        { script_text: "Fechamento", shot: "medio" },
+        { script_text: "Abertura do tema", shot: "medio", topics: [], image_file_id: null },
+        { script_text: "  Detalhe!\n", shot: "close", topics: [], image_file_id: null },
+        { script_text: "Fechamento", shot: "medio", topics: [], image_file_id: null },
       ],
+      music_enabled: false,
     });
   });
 
@@ -154,6 +155,95 @@ describe("Nova aula", () => {
 
     await waitFor(() => expect(sceneText(2)).toHaveAccessibleDescription(/Cena 2: o texto está vazio\./));
     expect(posts(api)).toHaveLength(1);
+  });
+});
+
+describe("Nova aula: tópicos, imagem e trilha", () => {
+  const created = () => json(202, { id: ID, status: "queued", status_url: `/panel/lessons/${ID}`, download_url: null });
+  const topicsOf = (position: number) => screen.getByRole("textbox", { name: `Tópicos da cena ${position}` });
+  const picture = (name = "tela.png", type = "image/png") => new File(["x"], name, { type });
+
+  it("envia tópicos literais, a imagem enviada antes e a trilha ligada", async () => {
+    const { api, user } = await openNewLesson();
+    api.on("POST", "/panel/lessons/images", () => json(201, { id: "img-1", url: "/panel/lessons/images/img-1" }));
+    api.on("POST", "/panel/lessons", created);
+    await user.type(sceneText(1), "Uma");
+    await user.type(sceneText(2), "Duas");
+    await user.type(topicsOf(1), "  Isolar a área{Enter}{Enter}Usar EPI ");
+    expect(screen.getByText("2 / 5 tópicos")).toBeInTheDocument();
+
+    await user.upload(screen.getByLabelText("Imagem da cena 2"), picture());
+    expect(await screen.findByRole("img", { name: "Imagem da cena 2" })).toHaveAttribute("src", "/panel/lessons/images/img-1");
+    const upload = api.requests.find((r) => r.path === "/panel/lessons/images")!;
+    expect((upload.body as FormData).get("file")).toBeInstanceOf(File);
+    await user.click(screen.getByRole("checkbox", { name: /Tocar a trilha de fundo/ }));
+    await user.click(screen.getByRole("button", { name: "Gerar aula" }));
+
+    await screen.findByRole("heading", { level: 1, name: "Aula" });
+    expect(posts(api)[0]!.body).toMatchObject({
+      scenes: [
+        { script_text: "Uma", shot: "medio", topics: ["  Isolar a área", "Usar EPI "], image_file_id: null },
+        { script_text: "Duas", shot: "medio", topics: [], image_file_id: "img-1" },
+      ],
+      music_enabled: true,
+    });
+  });
+
+  it("limita tópicos no navegador e mostra no campo certo os erros 422 de tópicos, imagem e trilha", async () => {
+    const { api, user } = await openNewLesson();
+    await user.type(sceneText(1), "Uma");
+    await user.type(sceneText(2), "Duas");
+
+    fireEvent.change(topicsOf(2), { target: { value: "a\nb\nc\nd\ne\nf" } });
+    expect(topicsOf(2)).toHaveAccessibleDescription(/Cena 2: no máximo 5 tópicos\./);
+    expect(screen.getByRole("button", { name: "Gerar aula" })).toBeDisabled();
+    fireEvent.change(topicsOf(2), { target: { value: `ok\n${"x".repeat(81)}` } });
+    expect(topicsOf(2)).toHaveAccessibleDescription(/Cena 2: o tópico 2 passa de 80 caracteres\./);
+    fireEvent.change(topicsOf(2), { target: { value: "ok" } });
+    expect(screen.getByRole("button", { name: "Gerar aula" })).toBeEnabled();
+
+    await user.upload(screen.getByLabelText("Imagem da cena 1"), picture("tela.gif", "image/gif"));
+    expect(screen.getByLabelText("Imagem da cena 1")).toHaveAccessibleDescription(/Cena 1: envie a imagem em JPEG, PNG ou WebP\./);
+    api.on("POST", "/panel/lessons/images", () => apiError(422, "UNSUPPORTED_FILE_TYPE", "Envie uma imagem JPEG, PNG ou WebP.", "file"));
+    await user.upload(screen.getByLabelText("Imagem da cena 1"), picture("falsa.png"));
+    await waitFor(() => expect(screen.getByLabelText("Imagem da cena 1")).toHaveAccessibleDescription(/Envie uma imagem JPEG, PNG ou WebP\./));
+    expect(screen.queryByRole("img", { name: "Imagem da cena 1" })).not.toBeInTheDocument();
+
+    const replies = [
+      apiError(422, "LESSON_TOPICS_INVALID", "Cena 2: o tópico 1 está vazio.", "scenes.1.topics"),
+      apiError(422, "LESSON_IMAGE_NOT_FOUND", "Cena 1: a imagem não foi encontrada. Envie a imagem de novo.", "scenes.0.image_file_id"),
+      apiError(422, "BRAND_MUSIC_MISSING", "Envie a trilha na tela Identidade ou desligue a trilha da aula.", "music_enabled"),
+    ];
+    api.on("POST", "/panel/lessons", () => replies.shift()!);
+    await user.click(screen.getByRole("button", { name: "Gerar aula" }));
+    await waitFor(() => expect(topicsOf(2)).toHaveAccessibleDescription(/Cena 2: o tópico 1 está vazio\./));
+    await user.click(screen.getByRole("button", { name: "Gerar aula" }));
+    await waitFor(() => expect(screen.getByLabelText("Imagem da cena 1")).toHaveAccessibleDescription(/Cena 1: a imagem não foi encontrada\./));
+    await user.click(screen.getByRole("checkbox", { name: /Tocar a trilha de fundo/ }));
+    await user.click(screen.getByRole("button", { name: "Gerar aula" }));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: /Tocar a trilha de fundo/ })).toHaveAccessibleDescription(/Envie a trilha na tela Identidade/));
+    expect(posts(api)).toHaveLength(3);
+  });
+
+  it("sem trilha na identidade, a trilha fica desligada e aponta para a Identidade", async () => {
+    await openNewLesson({ identity: { ...IDENTITY, music_url: null } });
+
+    expect(screen.getByRole("checkbox", { name: /Tocar a trilha de fundo/ })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Enviar trilha na Identidade" })).toHaveAttribute("href", "/identidade");
+  });
+
+  it("remove a imagem escolhida antes do envio", async () => {
+    const { api, user } = await openNewLesson();
+    api.on("POST", "/panel/lessons/images", () => json(201, { id: "img-1", url: "/panel/lessons/images/img-1" }));
+    api.on("POST", "/panel/lessons", created);
+    await user.type(sceneText(1), "Uma");
+    await user.type(sceneText(2), "Duas");
+    await user.upload(screen.getByLabelText("Imagem da cena 1"), picture());
+    await user.click(await screen.findByRole("button", { name: "Remover imagem da cena 1" }));
+    await user.click(screen.getByRole("button", { name: "Gerar aula" }));
+
+    await screen.findByRole("heading", { level: 1, name: "Aula" });
+    expect((posts(api)[0]!.body as { scenes: { image_file_id: string | null }[] }).scenes[0]!.image_file_id).toBeNull();
   });
 });
 
