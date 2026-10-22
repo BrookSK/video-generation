@@ -6,7 +6,7 @@ import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, Form, Request, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -14,7 +14,7 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from avatar_api import assets, jobs
+from avatar_api import assets, jobs, lessons
 from avatar_api.auth import (
     MIN_PASSWORD_LENGTH,
     SESSION_COOKIE,
@@ -34,6 +34,7 @@ from avatar_api.errors import ApiError
 from avatar_api.job_views import (
     IdempotencyKey,
     JobCreatedOut,
+    JobErrorOut,
     JobOut,
     WorkerStatusOut,
     download_response,
@@ -46,6 +47,7 @@ from avatar_api.models import (
     ApiKey,
     Avatar,
     BrandIdentity,
+    Lesson,
     RenderRecipe,
     Scene,
     StoredFile,
@@ -623,7 +625,12 @@ def create_panel_job(
 def list_panel_jobs(_: CurrentPanelSession, db: DbSession, request: Request) -> list[PanelJobOut]:
     return [
         _panel_job_out(db, job, request.app.state.settings.data_dir)
-        for job in db.scalars(select(VideoJob).order_by(VideoJob.created_at.desc(), VideoJob.id))
+        # Cenas de aula ficam na tela da aula, fora do histórico de vídeos avulsos.
+        for job in db.scalars(
+            select(VideoJob)
+            .where(VideoJob.lesson_id.is_(None))
+            .order_by(VideoJob.created_at.desc(), VideoJob.id)
+        )
     ]
 
 
@@ -646,3 +653,147 @@ def download_panel_job(
     job_id: uuid.UUID, _: CurrentPanelSession, db: DbSession, request: Request
 ) -> FileResponse:
     return download_response(db, _panel_job(db, job_id), request.app.state.settings.data_dir)
+
+
+# --- aulas ------------------------------------------------------------------------------
+
+LessonStatus = Literal["queued", "assembling", "ready", "failed"]
+
+
+class LessonCreatedOut(BaseModel):
+    id: uuid.UUID
+    status: LessonStatus
+    status_url: str
+    download_url: str | None
+
+
+class LessonSceneOut(BaseModel):
+    position: int
+    script_text: str
+    shot: str
+    job_id: uuid.UUID
+    status: Literal["queued", "processing", "ready", "failed"]
+    stage: str | None
+    error: JobErrorOut | None
+
+
+class LessonOut(LessonCreatedOut):
+    avatar_id: uuid.UUID
+    scene_id: uuid.UUID
+    avatar_name: str
+    scene_name: str
+    aspect_ratio: str
+    background_color: str
+    accent_color: str
+    requested_by: str
+    created_at: datetime
+    finished_at: datetime | None
+    error: JobErrorOut | None
+    size_bytes: int | None
+    scenes: list[LessonSceneOut]
+
+
+def _lesson_created_out(lesson: Lesson) -> LessonCreatedOut:
+    status_url = f"/panel/lessons/{lesson.id}"
+    return LessonCreatedOut(
+        id=lesson.id,
+        status=lesson.status,
+        status_url=status_url,
+        download_url=f"{status_url}/download" if lesson.status == "ready" else None,
+    )
+
+
+def _error_out(status: str, code: str | None, message: str | None) -> JobErrorOut | None:
+    if status != "failed":
+        return None
+    return JobErrorOut(code=code or "", message=message or "")
+
+
+def _lesson_out(db: Session, lesson: Lesson, data_dir: Path) -> LessonOut:
+    person = db.get(User, lesson.requested_by_user_id)
+    stored = db.get(StoredFile, lesson.result_file_id) if lesson.result_file_id else None
+    file_exists = stored is not None and resolve_path(data_dir, stored).is_file()
+    output = _lesson_created_out(lesson).model_dump()
+    if not file_exists:
+        output["download_url"] = None
+    return LessonOut(
+        **output,
+        avatar_id=lesson.avatar_id,
+        scene_id=lesson.scene_id,
+        avatar_name=db.get(Avatar, lesson.avatar_id).name,
+        scene_name=db.get(Scene, lesson.scene_id).name,
+        aspect_ratio=lesson.aspect_ratio,
+        background_color=lesson.background_color,
+        accent_color=lesson.accent_color,
+        requested_by=person.display_name or person.username,
+        created_at=lesson.created_at,
+        finished_at=lesson.finished_at,
+        error=_error_out(lesson.status, lesson.error_code, lesson.error_message),
+        size_bytes=stored.size_bytes if file_exists else None,
+        scenes=[
+            LessonSceneOut(
+                position=scene.position,
+                script_text=scene.script_text,
+                shot=scene.shot,
+                job_id=job.id,
+                status=job.status,
+                stage=job.stage if job.status == "processing" else None,
+                error=_error_out(job.status, job.error_code, job.error_message),
+            )
+            for scene, job in lessons.lesson_scenes(db, lesson.id)
+        ],
+    )
+
+
+@router.post("/lessons", status_code=202)
+def create_lesson(
+    body: lessons.NewLesson,
+    identity: CurrentPanelSession,
+    db: DbSession,
+    idempotency_key: IdempotencyKey = None,
+) -> LessonCreatedOut:
+    # create_lesson só volta depois do commit: nenhum 202 sai com a aula fora do banco.
+    lesson = lessons.create_lesson(db, identity.user_id, body, idempotency_key)
+    return _lesson_created_out(lesson)
+
+
+@router.get("/lessons")
+def list_lessons(_: CurrentPanelSession, db: DbSession, request: Request) -> list[LessonOut]:
+    data_dir = request.app.state.settings.data_dir
+    return [_lesson_out(db, lesson, data_dir) for lesson in lessons.list_lessons(db)]
+
+
+@router.get("/lessons/{lesson_id}")
+def get_lesson(
+    lesson_id: uuid.UUID, _: CurrentPanelSession, db: DbSession, request: Request
+) -> LessonOut:
+    return _lesson_out(
+        db, lessons.get_lesson(db, lesson_id), request.app.state.settings.data_dir
+    )
+
+
+@router.get("/lessons/{lesson_id}/download")
+def download_lesson(
+    lesson_id: uuid.UUID, _: CurrentPanelSession, db: DbSession, request: Request
+) -> FileResponse:
+    lesson = lessons.get_lesson(db, lesson_id)
+    if lesson.status == "failed":
+        raise ApiError(
+            409, "LESSON_FAILED", f"A aula falhou: {lesson.error_code}: {lesson.error_message}"
+        )
+    if lesson.status != "ready":
+        raise ApiError(
+            409,
+            "LESSON_NOT_READY",
+            f"A aula ainda não está pronta. Status atual: {lesson.status}.",
+        )
+    stored = db.get(StoredFile, lesson.result_file_id)
+    path = resolve_path(request.app.state.settings.data_dir, stored)
+    if not path.is_file():
+        raise ApiError(404, "NOT_FOUND", "O arquivo da aula não está disponível.")
+    return FileResponse(
+        path,
+        media_type=stored.content_type,
+        filename=f"aula-{lesson.id}.mp4",
+        headers={"Cache-Control": "private"},
+    )

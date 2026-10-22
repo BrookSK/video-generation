@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from conftest import lesson_body
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -299,3 +300,14 @@ def test_literal_limit_counts_borders_and_blank_stays_invalid(
     assert too_long.json()["error"]["code"] == "SCRIPT_TOO_LONG"
     healthy = panel.post(f"{prefix}/jobs", json={**payload, "script_text": "Olá!"}, headers=headers)
     assert healthy.status_code == 202
+
+
+def test_historico_avulso_nao_lista_cenas_de_aula(lesson_panel, brand, payload, seeded_catalog):
+    lesson = lesson_panel.post("/panel/lessons", json=lesson_body(seeded_catalog))
+    assert lesson.status_code == 202, lesson.text
+    single = lesson_panel.post("/panel/jobs", json=payload)
+    assert single.status_code == 202, single.text
+
+    history = lesson_panel.get("/panel/jobs").json()
+
+    assert [entry["id"] for entry in history] == [single.json()["id"]]
