@@ -3,14 +3,16 @@ set -euo pipefail
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 ENV_FILE="$ROOT/infra/compose/.env"
 ROLE=all
+SUPERVISOR_IMAGE=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file) ENV_FILE="${2:?Falta caminho de ambiente}"; shift 2 ;;
     --role) ROLE="${2:?Falta papel api ou worker}"; shift 2 ;;
-    *) echo "Uso: bash infra/scripts/check-release.sh [--env-file arquivo] [--role api|worker|all]" >&2; exit 2 ;;
+    --supervisor-image) SUPERVISOR_IMAGE="${2:?Falta imagem do supervisor CPU}"; shift 2 ;;
+    *) echo "Uso: bash infra/scripts/check-release.sh [--env-file arquivo] [--role api|worker|all] [--supervisor-image imagem]" >&2; exit 2 ;;
   esac
 done
-python3 - "$ROOT" "$ENV_FILE" "$ROLE" <<'PY'
+python3 - "$ROOT" "$ENV_FILE" "$ROLE" "$SUPERVISOR_IMAGE" <<'PY'
 import json
 import os
 from pathlib import Path
@@ -19,6 +21,7 @@ import subprocess
 import sys
 
 root, env_path, role = Path(sys.argv[1]), Path(sys.argv[2]).resolve(), sys.argv[3]
+supervisor_image = sys.argv[4]
 
 def fail(message):
     print(f"Release bloqueado: {message}", file=sys.stderr)
@@ -45,6 +48,8 @@ if env_path.stat().st_mode & 0o077:
     fail("ambiente precisa de permissões 600 ou mais restritas")
 # O arquivo informado é a fonte; variáveis herdadas do terminal não podem sobrescrevê-lo.
 environment = {key: value for key, value in os.environ.items() if key not in referenced}
+# Todos os perfis: o worker desligado por perfil também precisa de configuração coerente.
+environment["COMPOSE_PROFILES"] = "*"
 digest = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 roles = ["api", "worker"] if role == "all" else [role]
 for selected in roles:
@@ -64,6 +69,9 @@ for selected in roles:
     except json.JSONDecodeError:
         fail("Compose não retornou configuração JSON válida")
     services = config["services"]
+    kinds = {kind.strip() for kind in str(services.get("worker", {}).get("environment", {}).get("WORKER_KINDS", "")).split(",")}
+    if {"video", "lesson_assemble"} <= kinds:
+        fail(f"{selected}/worker: WORKER_KINDS não pode juntar video e lesson_assemble no mesmo serviço")
     active = ["postgres", "api", "caddy"] if selected == "api" else ["worker"]
     for name in active:
         service = services[name]
@@ -91,5 +99,20 @@ for selected in roles:
         if len(model_mounts) != 1 or not model_mounts[0].get("read_only"):
             fail("worker precisa de /models montado somente leitura")
     print(f"Release {selected}: Compose e referências imutáveis válidos; documentos e ambiente conferidos.")
+if supervisor_image:
+    # A montagem da aula roda só com FFmpeg e FFprobe dentro da imagem do supervisor CPU.
+    try:
+        present = subprocess.run(["docker", "image", "inspect", supervisor_image], capture_output=True, timeout=60).returncode == 0
+        if not present:
+            fail("imagem do supervisor CPU ausente no cache local: " + supervisor_image)
+        for tool in ["ffmpeg", "ffprobe"]:
+            check = subprocess.run(["docker", "run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", tool, supervisor_image, "-version"], capture_output=True, timeout=120)
+            if check.returncode:
+                fail(f"imagem do supervisor CPU sem {tool}: {supervisor_image}")
+    except (OSError, subprocess.TimeoutExpired):
+        fail("Docker indisponível ou excedeu prazo ao conferir a imagem do supervisor CPU")
+    print(f"Supervisor CPU: FFmpeg e FFprobe presentes em {supervisor_image}.")
+else:
+    print("Supervisor CPU: imagem não conferida; use --supervisor-image para conferir FFmpeg e FFprobe.")
 print("Validação de configuração apenas: não comprova imagem disponível, GPU, piloto nem aceite do cliente.")
 PY

@@ -27,7 +27,8 @@ EOF
 }
 reject() {
   local label="$1" expected="$2"
-  if bash "$TEMP/infra/scripts/check-release.sh" --env-file "$ENV_FILE" > "$TEMP/output" 2>&1; then
+  shift 2
+  if bash "$TEMP/infra/scripts/check-release.sh" --env-file "$ENV_FILE" "$@" > "$TEMP/output" 2>&1; then
     echo "FAIL: $label foi aceito" >&2; exit 1
   fi
   if ! /usr/bin/grep -Fq "$expected" "$TEMP/output"; then
@@ -48,6 +49,11 @@ reject token-curto 'pelo menos 32'
 write_env
 printf 'SITE_ADDRESS=:80\n' >> "$ENV_FILE"
 reject HTTP-publico 'domínio HTTPS'
+write_env
+printf 'WORKER_KINDS=video,lesson_assemble\n' >> "$ENV_FILE"
+reject configuracao-mista 'não pode juntar video e lesson_assemble'
+write_env
+reject supervisor-ausente 'ausente no cache local' --supervisor-image fixture-supervisor-ausente:isolado
 write_env
 chmod 644 "$ENV_FILE"
 reject ambiente-legivel 'permissões 600'
