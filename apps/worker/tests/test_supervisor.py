@@ -701,7 +701,8 @@ def test_montagem_do_claim_ao_complete(lesson_files, tmp_path):
     assert paths[0] == "/internal/v1/claim"
     assert "/internal/v1/files/scene-1" in paths and f"/internal/v1/files/{LOGO_ID}" in paths
     base = f"/internal/v1/lesson-tasks/{TASK_ID}"
-    assert paths[-1] == f"{base}/complete"
+    # A thread de heartbeat pode registrar uma renovação depois do complete; não conta.
+    assert [path for path in paths if not path.endswith("/heartbeat")][-1] == f"{base}/complete"
     assert set(api.uploads) == {"manifest.json", "final.mp4"}
     completed = json.loads(api.completed)
     assert completed == {
