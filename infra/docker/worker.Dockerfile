@@ -4,10 +4,15 @@
 # travam torch com CUDA.
 FROM ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 AS uv
 
-# Supervisor sem GPU, só com recorte do avatar em CPU (desenvolvimento, qualquer arquitetura):
+# Supervisor sem GPU: recorte do avatar e montagem das aulas em CPU (qualquer arquitetura):
 #   docker build --target supervisor-cpu -f infra/docker/worker.Dockerfile .
 # O modelo birefnet-portrait vem do volume /models (manifest pull --component birefnet-portrait).
 FROM python:3.12.13-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36 AS supervisor-cpu
+
+# FFmpeg e FFprobe do Debian: a montagem da aula (lesson_assemble) roda só com eles.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
