@@ -28,7 +28,7 @@ from avatar_api.models import (
     StoredFile,
 )
 from avatar_api.storage import resolve_path, save_stream
-from avatar_api.uploads import ValidatedImage, render_previews
+from avatar_api.uploads import ValidatedAudio, ValidatedImage, render_previews
 
 AvatarStatus = Literal["preparando", "ativo", "falha", "arquivado"]
 AvatarFileKind = Literal["source", "prepared", "preview-9x16", "preview-16x9"]
@@ -387,9 +387,7 @@ def save_brand_identity(
     try:
         if logo is None:
             updated = session.execute(
-                update(BrandIdentity)
-                .where(BrandIdentity.id == BRAND_IDENTITY_ID)
-                .values(**changes)
+                update(BrandIdentity).where(BrandIdentity.id == BRAND_IDENTITY_ID).values(**changes)
             )
             if updated.rowcount == 0:
                 raise ApiError(422, "VALIDATION_ERROR", "Envie o logo em PNG ou JPEG.", "logo")
@@ -426,6 +424,63 @@ def brand_logo(session: Session, data_dir: Path) -> tuple[Path, StoredFile]:
     if identity is None:
         raise ApiError(404, "NOT_FOUND", "Nenhum logo cadastrado.")
     stored = session.get(StoredFile, identity.logo_file_id)
+    return resolve_path(data_dir, stored), stored
+
+
+def save_brand_music(
+    session: Session, data_dir: Path, user_id: uuid.UUID, music: ValidatedAudio
+) -> BrandIdentity:
+    """Grava a trilha nova em brand/<id>/; a anterior continua no volume para as aulas antigas."""
+    identity = session.get(BrandIdentity, BRAND_IDENTITY_ID, with_for_update=True)
+    if identity is None:
+        raise ApiError(
+            422,
+            "BRAND_IDENTITY_MISSING",
+            "Cadastre o logo e as cores antes de enviar a trilha.",
+            "music",
+        )
+    try:
+        with music.path.open("rb") as stream:
+            stored = save_stream(
+                session,
+                data_dir,
+                f"brand/{uuid.uuid4()}",
+                f"trilha{music.extension}",
+                stream,
+                music.sha256,
+                music.content_type,
+                commit=False,
+            )
+        identity.music_file_id = stored.id
+        identity.updated_by_user_id = user_id
+        identity.updated_at = func.now()
+        session.commit()
+    except BaseException:
+        session.rollback()
+        raise
+    session.refresh(identity)
+    return identity
+
+
+def remove_brand_music(session: Session, user_id: uuid.UUID) -> BrandIdentity | None:
+    """Tira a trilha da identidade; o arquivo fica no volume para as aulas que o usam."""
+    session.execute(
+        update(BrandIdentity)
+        .where(BrandIdentity.id == BRAND_IDENTITY_ID)
+        .values(music_file_id=None, updated_by_user_id=user_id, updated_at=func.now())
+    )
+    session.commit()
+    identity = get_brand_identity(session)
+    if identity is not None:
+        session.refresh(identity)
+    return identity
+
+
+def brand_music(session: Session, data_dir: Path) -> tuple[Path, StoredFile]:
+    identity = get_brand_identity(session)
+    if identity is None or identity.music_file_id is None:
+        raise ApiError(404, "NOT_FOUND", "Nenhuma trilha cadastrada.")
+    stored = session.get(StoredFile, identity.music_file_id)
     return resolve_path(data_dir, stored), stored
 
 

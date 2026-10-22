@@ -1,4 +1,4 @@
-"""Validação de imagem enviada: assinatura, tamanho, pixels e decodificação isolada.
+"""Validação de imagem e de trilha enviadas: assinatura, tamanho, pixels e decodificação isolada.
 
 A decodificação roda num subprocesso (python -m avatar_api.uploads <caminho>) com limite
 de tempo e, no Linux, de memória, para que um arquivo malicioso não derrube a API. As
@@ -80,7 +80,12 @@ def _unreadable(field: str) -> ApiError:
     )
 
 
-def _copy_limited(stream: BinaryIO, tmp_dir: Path, field: str) -> tuple[Path, str, int]:
+def _copy_limited(
+    stream: BinaryIO,
+    tmp_dir: Path,
+    field: str,
+    too_large: str = "A imagem passa do limite de 20 MB.",
+) -> tuple[Path, str, int]:
     """Copia no máximo MAX_IMAGE_BYTES + 1 byte; passou do limite, apaga e recusa."""
     digest = hashlib.sha256()
     size = 0
@@ -97,7 +102,7 @@ def _copy_limited(stream: BinaryIO, tmp_dir: Path, field: str) -> tuple[Path, st
                 size += len(chunk)
                 tmp.write(chunk)
             if size > MAX_IMAGE_BYTES:
-                raise ApiError(422, "FILE_TOO_LARGE", "A imagem passa do limite de 20 MB.", field)
+                raise ApiError(422, "FILE_TOO_LARGE", too_large, field)
         except BaseException:
             tmp_path.unlink(missing_ok=True)
             raise
@@ -173,6 +178,50 @@ def validate_image(stream: BinaryIO, field: str, tmp_dir: Path) -> ValidatedImag
         height=info["height"],
         has_alpha=info["has_alpha"],
     )
+
+
+# --- trilha de fundo ---------------------------------------------------------------------
+
+MAX_AUDIO_BYTES = MAX_IMAGE_BYTES
+_M4A_BRANDS = frozenset({b"M4A ", b"M4B ", b"mp41", b"mp42", b"isom", b"iso2"})
+
+
+@dataclass(frozen=True)
+class ValidatedAudio:
+    path: Path
+    sha256: str
+    size_bytes: int
+    content_type: str
+    extension: str
+
+
+def _sniff_audio(head: bytes, field: str) -> tuple[str, str]:
+    """Tipo pela assinatura: MP3, WAV, M4A ou OGG. A leitura real fica com a montagem."""
+    if head.startswith(b"ID3") or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0):
+        return "audio/mpeg", ".mp3"
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return "audio/wav", ".wav"
+    if head[4:8] == b"ftyp" and head[8:12] in _M4A_BRANDS:
+        return "audio/mp4", ".m4a"
+    if head.startswith(b"OggS"):
+        return "audio/ogg", ".ogg"
+    raise _unsupported(field, "Envie a trilha em MP3, WAV, M4A ou OGG.")
+
+
+def validate_audio(stream: BinaryIO, field: str, tmp_dir: Path) -> ValidatedAudio:
+    """Confere tamanho e assinatura da trilha; em toda recusa, apaga o temporário."""
+    tmp_path, sha256, size = _copy_limited(
+        stream, tmp_dir, field, "A trilha passa do limite de 20 MB."
+    )
+    try:
+        if size == 0:
+            raise ApiError(422, "FILE_EMPTY", "O arquivo está vazio.", field)
+        with tmp_path.open("rb") as file:
+            content_type, extension = _sniff_audio(file.read(_SNIFF_BYTES), field)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return ValidatedAudio(tmp_path, sha256, size, content_type, extension)
 
 
 def render_previews(path: Path, sizes: dict[str, tuple[int, int]], field: str) -> dict[str, bytes]:

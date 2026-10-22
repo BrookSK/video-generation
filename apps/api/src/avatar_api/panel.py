@@ -56,7 +56,7 @@ from avatar_api.models import (
     VideoJob,
 )
 from avatar_api.storage import resolve_path
-from avatar_api.uploads import validate_image
+from avatar_api.uploads import validate_audio, validate_image
 
 router = APIRouter(prefix="/panel")
 
@@ -460,6 +460,7 @@ class BrandIdentityOut(BaseModel):
     """Sem cadastro, todos os campos vêm nulos."""
 
     logo_url: str | None
+    music_url: str | None
     background_color: str | None
     accent_color: str | None
     updated_at: datetime | None
@@ -470,6 +471,7 @@ def _brand_identity_out(db: Session, identity: BrandIdentity | None) -> BrandIde
     if identity is None:
         return BrandIdentityOut(
             logo_url=None,
+            music_url=None,
             background_color=None,
             accent_color=None,
             updated_at=None,
@@ -479,6 +481,11 @@ def _brand_identity_out(db: Session, identity: BrandIdentity | None) -> BrandIde
     return BrandIdentityOut(
         # O ID do arquivo na URL faz o navegador buscar o logo novo depois de uma troca.
         logo_url=f"/panel/brand-identity/logo?v={identity.logo_file_id}",
+        music_url=(
+            f"/panel/brand-identity/music?v={identity.music_file_id}"
+            if identity.music_file_id
+            else None
+        ),
         background_color=identity.background_color,
         accent_color=identity.accent_color,
         updated_at=identity.updated_at,
@@ -518,6 +525,32 @@ def put_brand_identity(
 @router.get("/brand-identity/logo")
 def brand_identity_logo(_: CurrentPanelSession, db: DbSession, request: Request) -> FileResponse:
     path, stored = assets.brand_logo(db, request.app.state.settings.data_dir)
+    return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
+
+
+@router.put("/brand-identity/music")
+def put_brand_music(
+    music: Annotated[UploadFile, File()],
+    identity: CurrentPanelSession,
+    db: DbSession,
+    request: Request,
+) -> BrandIdentityOut:
+    data_dir = request.app.state.settings.data_dir
+    # Como no logo, o temporário fica fora de DATA_DIR: recusa não deixa nada no volume.
+    with tempfile.TemporaryDirectory(prefix="music-upload-") as tmp_dir:
+        audio = validate_audio(music.file, "music", Path(tmp_dir))
+        saved = assets.save_brand_music(db, data_dir, identity.user_id, audio)
+    return _brand_identity_out(db, saved)
+
+
+@router.delete("/brand-identity/music")
+def delete_brand_music(identity: CurrentPanelSession, db: DbSession) -> BrandIdentityOut:
+    return _brand_identity_out(db, assets.remove_brand_music(db, identity.user_id))
+
+
+@router.get("/brand-identity/music")
+def brand_identity_music(_: CurrentPanelSession, db: DbSession, request: Request) -> FileResponse:
+    path, stored = assets.brand_music(db, request.app.state.settings.data_dir)
     return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
 
 
@@ -767,9 +800,7 @@ def list_lessons(_: CurrentPanelSession, db: DbSession, request: Request) -> lis
 def get_lesson(
     lesson_id: uuid.UUID, _: CurrentPanelSession, db: DbSession, request: Request
 ) -> LessonOut:
-    return _lesson_out(
-        db, lessons.get_lesson(db, lesson_id), request.app.state.settings.data_dir
-    )
+    return _lesson_out(db, lessons.get_lesson(db, lesson_id), request.app.state.settings.data_dir)
 
 
 @router.get("/lessons/{lesson_id}/download")
