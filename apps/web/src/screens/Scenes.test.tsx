@@ -192,12 +192,15 @@ describe("Editor de cenário", () => {
     expect(body.get("background_color")).toBe("#123ABC");
     expect(body.get("file")).toBeNull();
     const composition = JSON.parse(body.get("composition") as string);
-    expect(Object.keys(composition).sort()).toEqual(["16:9", "9:16"]);
+    expect(Object.keys(composition).sort()).toEqual(["16:9", "9:16", "close"]);
+    // Close sem ajuste: o derivado do médio de cada formato.
     expect(composition).toEqual({
       "9:16": { scale: 0.7, x: 0.5, y: 1 },
       "16:9": { scale: 1.05, x: 0.65, y: 1.15 },
+      close: { "9:16": { scale: 1.12, x: 0.5, y: 1.42 }, "16:9": { scale: 1.68, x: 0.65, y: 1.78 } },
     });
-    for (const framing of Object.values(composition) as Record<string, unknown>[]) {
+    const framings = [composition["9:16"], composition["16:9"], composition.close["9:16"], composition.close["16:9"]];
+    for (const framing of framings as Record<string, unknown>[]) {
       expect(Object.keys(framing).sort()).toEqual(["scale", "x", "y"]);
       expect(Object.values(framing).every((value) => typeof value === "number")).toBe(true);
     }
@@ -231,7 +234,7 @@ describe("Editor de cenário", () => {
     const body = calls(api, "POST", LIST)[0]!.body as FormData;
     expect((body.get("file") as File).name).toBe("vitrine.png");
     expect(body.get("background_color")).toBeNull();
-    expect(Object.keys(JSON.parse(body.get("composition") as string)).sort()).toEqual(["16:9", "9:16"]);
+    expect(Object.keys(JSON.parse(body.get("composition") as string)).sort()).toEqual(["16:9", "9:16", "close"]);
   });
 
   it("bloqueia o envio sem nome e liga o erro de enquadramento do servidor ao campo", async () => {
@@ -254,5 +257,55 @@ describe("Editor de cenário", () => {
     expect(within(framing).getByText("Enquadramento 16:9: escala 1,3 fora da faixa de 0,3 a 1,2.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Criar cenário" })).toBeInTheDocument();
     expect(calls(api, "POST", LIST)).toHaveLength(1);
+  });
+
+  it("close começa derivado do médio, ajustar o close não altera o médio e o corpo leva os dois planos", async () => {
+    const { api, user } = await openEditor();
+    api.on("POST", LIST, () => json(201, { ...SALVIA, id: "5c5c5c5c-0000-4000-8000-000000000011", name: "Bancada" }));
+    await user.type(screen.getByLabelText("Nome do cenário"), "Bancada");
+    await user.click(screen.getByRole("radio", { name: "Cor sólida" }));
+    const avatar = await within(stage()).findByRole("img", { name: "Avatar de amostra: Helena" });
+
+    await user.click(screen.getByRole("radio", { name: "Close" }));
+    expect(within(stage()).getByText("Close")).toBeInTheDocument();
+    expect(slider("Escala")).toHaveValue("1.28");
+    expect(slider("Base")).toHaveValue("1.48");
+    expect(avatar).toHaveStyle({ height: "128%", left: "50%", bottom: "-48%" });
+    setSlider("Escala", "1.5");
+    setSlider("Posição horizontal", "0.4");
+    expect(avatar).toHaveStyle({ height: "150%", left: "40%" });
+
+    await user.click(screen.getByRole("radio", { name: "Plano médio" }));
+    expect(slider("Escala")).toHaveValue("0.8");
+    expect(slider("Posição horizontal")).toHaveValue("0.5");
+    expect(avatar).toHaveStyle({ height: "80%", left: "50%", bottom: "0%" });
+    setSlider("Escala", "0.9");
+    await user.click(screen.getByRole("radio", { name: "Close" }));
+    expect(slider("Escala")).toHaveValue("1.5");
+
+    await user.click(screen.getByRole("button", { name: "Salvar cenário" }));
+
+    await screen.findByRole("heading", { level: 1, name: "Cenários" });
+    const body = calls(api, "POST", LIST)[0]!.body as FormData;
+    expect(JSON.parse(body.get("composition") as string)).toEqual({
+      "9:16": { scale: 0.9, x: 0.5, y: 1 },
+      "16:9": { scale: 0.9, x: 0.5, y: 1 },
+      close: { "9:16": { scale: 1.5, x: 0.4, y: 1.48 }, "16:9": { scale: 1.44, x: 0.5, y: 1.54 } },
+    });
+  });
+
+  it("mostra no enquadramento o erro 422 do close", async () => {
+    const { api, user } = await openEditor();
+    const message = "Close 9:16: escala 2,6 fora da faixa de 0,3 a 2,5.";
+    api.on("POST", LIST, () => apiError(422, "VALIDATION_ERROR", message, "composition"));
+    await user.type(screen.getByLabelText("Nome do cenário"), "Bancada");
+    await user.click(screen.getByRole("radio", { name: "Cor sólida" }));
+    await user.click(screen.getByRole("radio", { name: "Close" }));
+
+    await user.click(screen.getByRole("button", { name: "Salvar cenário" }));
+
+    const framing = await screen.findByRole("region", { name: "Enquadramento" });
+    expect(framing).toHaveAccessibleDescription(message);
+    expect(screen.getByRole("heading", { level: 1, name: "Criar cenário" })).toBeInTheDocument();
   });
 });

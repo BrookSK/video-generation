@@ -8,7 +8,10 @@ import type { Avatar } from "./AvatarDialog";
 
 type AspectRatio = "9:16" | "16:9";
 type Framing = { scale: number; x: number; y: number };
-export type Composition = Record<AspectRatio, Framing>;
+type Shot = "medio" | "close";
+type Framings = Record<AspectRatio, Framing>;
+/** Plano médio por formato e, em cenários novos, o close salvo; sem close, vale o derivado. */
+export type Composition = Framings & { close?: Framings };
 
 type BackgroundKind = "image" | "color";
 type Field = "name" | "file" | "background_color" | "composition";
@@ -23,12 +26,30 @@ const SWATCHES = ["#CFE0D6", "#DDE3EC", "#F1E4D3", "#E9D7E4", "#2A2752", "#FFFFF
 const NUMBER = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Faixas e geometria de canvas.compose_canvas: scale é a altura do avatar sobre a altura do
-// canvas, x o centro horizontal e y a base, em frações do canvas.
-const SLIDERS: { key: keyof Framing; label: string; min: number; max: number }[] = [
-  { key: "scale", label: "Escala", min: 0.3, max: 1.2 },
-  { key: "x", label: "Posição horizontal", min: 0, max: 1 },
-  { key: "y", label: "Base", min: 0.5, max: 1.2 },
+// canvas, x o centro horizontal e y a base, em frações do canvas. O close aceita a pessoa maior.
+const SLIDERS: Record<Shot, { key: keyof Framing; label: string; min: number; max: number }[]> = {
+  medio: [
+    { key: "scale", label: "Escala", min: 0.3, max: 1.2 },
+    { key: "x", label: "Posição horizontal", min: 0, max: 1 },
+    { key: "y", label: "Base", min: 0.5, max: 1.2 },
+  ],
+  close: [
+    { key: "scale", label: "Escala", min: 0.3, max: 2.5 },
+    { key: "x", label: "Posição horizontal", min: 0, max: 1 },
+    { key: "y", label: "Base", min: 0.5, max: 2.5 },
+  ],
+};
+const SHOTS: { id: Shot; label: string }[] = [
+  { id: "medio", label: "Plano médio" },
+  { id: "close", label: "Close" },
 ];
+const round = (value: number) => Math.round(value * 100) / 100;
+
+/** Close padrão de canvas.shot_framing: 1,6 vez a escala do médio e o topo da cabeça na mesma altura. */
+export function derivedClose(medio: Framing): Framing {
+  const scale = round(Math.min(medio.scale * 1.6, 2.5));
+  return { scale, x: medio.x, y: round(medio.y - medio.scale + scale) };
+}
 
 // Enquadramentos padrão do devseed: centro e base, 0,8 em 9:16 e 0,9 em 16:9.
 const DEFAULT_COMPOSITION: Composition = {
@@ -153,6 +174,7 @@ function Stage({
   background,
   sample,
   format,
+  shot,
   framing,
 }: {
   name: string;
@@ -161,6 +183,7 @@ function Stage({
   background: string | null;
   sample: Avatar | null;
   format: AspectRatio;
+  shot: Shot;
   framing: Framing;
 }) {
   // Geometria de compose_canvas: altura = scale x altura do visor, centro em x, base em y.
@@ -212,6 +235,7 @@ function Stage({
       <div className="stage-meta">
         <span className="tag">{sample ? sample.name : "Silhueta de amostra"}</span>
         <span className="tag">{name.trim() || "Cenário novo"}</span>
+        <span className="tag">{shot === "close" ? "Close" : "Plano médio"}</span>
       </div>
     </section>
   );
@@ -226,7 +250,10 @@ export function SceneEditor() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [format, setFormat] = useState<AspectRatio>("9:16");
-  const [composition, setComposition] = useState<Composition>(DEFAULT_COMPOSITION);
+  const [composition, setComposition] = useState<Framings>(DEFAULT_COMPOSITION);
+  // Close ajustado por formato; o formato sem ajuste segue o derivado do médio.
+  const [closeEdits, setCloseEdits] = useState<Partial<Framings>>({});
+  const [shot, setShot] = useState<Shot>("medio");
   const [sample, setSample] = useState<Avatar | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
@@ -264,8 +291,14 @@ export function SceneEditor() {
     setErrors((current) => ({ ...current, file: error }));
   }
 
+  const closeFor = (ratio: AspectRatio) => closeEdits[ratio] ?? derivedClose(composition[ratio]);
+
   function adjust(key: keyof Framing, value: number) {
-    setComposition((current) => ({ ...current, [format]: { ...current[format], [key]: value } }));
+    if (shot === "medio") {
+      setComposition((current) => ({ ...current, [format]: { ...current[format], [key]: value } }));
+    } else {
+      setCloseEdits((current) => ({ ...current, [format]: { ...closeFor(format), [key]: value } }));
+    }
     setErrors((current) => ({ ...current, composition: undefined }));
   }
 
@@ -284,7 +317,8 @@ export function SceneEditor() {
     body.append("name", trimmed);
     if (kind === "image" && file) body.append("file", file, file.name);
     else body.append("background_color", color);
-    body.append("composition", JSON.stringify(composition));
+    const close = { "9:16": closeFor("9:16"), "16:9": closeFor("16:9") };
+    body.append("composition", JSON.stringify({ ...composition, close }));
     setBusy(true);
     try {
       const created = await request<{ name: string }>("POST", "/panel/scenes", body);
@@ -298,7 +332,7 @@ export function SceneEditor() {
     }
   }
 
-  const framing = composition[format];
+  const framing = shot === "medio" ? composition[format] : closeFor(format);
 
   return (
     <div className="page">
@@ -410,8 +444,25 @@ export function SceneEditor() {
                 ))}
               </div>
             </div>
-            <p className="hint">Ajuste os dois formatos. O vídeo nunca corta nem estica a pessoa.</p>
-            {SLIDERS.map((slider) => {
+            <div className="seg" role="radiogroup" aria-label="Plano">
+              {SHOTS.map((option) => (
+                <Fragment key={option.id}>
+                  <input
+                    type="radio"
+                    id={`ss-${option.id}`}
+                    name="scshot"
+                    checked={shot === option.id}
+                    onChange={() => setShot(option.id)}
+                  />
+                  <label htmlFor={`ss-${option.id}`}>{option.label}</label>
+                </Fragment>
+              ))}
+            </div>
+            <p className="hint">
+              Ajuste os dois planos nos dois formatos. O close começa maior, com o topo da cabeça na altura do médio. O
+              vídeo nunca corta nem estica a pessoa.
+            </p>
+            {SLIDERS[shot].map((slider) => {
               const id = `fr-${slider.key}`;
               return (
                 <div key={slider.key} className="slider">
@@ -457,7 +508,16 @@ export function SceneEditor() {
             </div>
           </div>
         </form>
-        <Stage name={name} kind={kind} color={color} background={preview} sample={sample} format={format} framing={framing} />
+        <Stage
+          name={name}
+          kind={kind}
+          color={color}
+          background={preview}
+          sample={sample}
+          format={format}
+          shot={shot}
+          framing={framing}
+        />
       </div>
     </div>
   );
