@@ -915,6 +915,162 @@
         }
       }
     },
+    "/panel/lessons": {
+      "post": {
+        "summary": "Create Lesson",
+        "operationId": "create_lesson_panel_lessons_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewLesson"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonCreatedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List Lessons",
+        "operationId": "list_lessons_panel_lessons_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LessonOut"
+                  },
+                  "title": "Response List Lessons Panel Lessons Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/lessons/{lesson_id}": {
+      "get": {
+        "summary": "Get Lesson",
+        "operationId": "get_lesson_panel_lessons__lesson_id__get",
+        "parameters": [
+          {
+            "name": "lesson_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Lesson Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/lessons/{lesson_id}/download": {
+      "get": {
+        "summary": "Download Lesson",
+        "operationId": "download_lesson_panel_lessons__lesson_id__download_get",
+        "parameters": [
+          {
+            "name": "lesson_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Lesson Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/worker-status": {
       "get": {
         "summary": "Worker Status",
@@ -1843,6 +1999,56 @@
         }
       }
     },
+    "/internal/v1/lesson-tasks/{task_id}/heartbeat": {
+      "post": {
+        "summary": "Lesson Task Heartbeat",
+        "operationId": "lesson_task_heartbeat_internal_v1_lesson_tasks__task_id__heartbeat_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttemptRef"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/v1/files/{file_id}": {
       "get": {
         "summary": "Download File",
@@ -2031,6 +2237,79 @@
         }
       }
     },
+    "/internal/v1/lesson-tasks/{task_id}/attempts/{attempt_id}/files/{name}": {
+      "put": {
+        "summary": "Upload Lesson Task File",
+        "operationId": "upload_lesson_task_file_internal_v1_lesson_tasks__task_id__attempts__attempt_id__files__name__put",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "attempt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Attempt Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "final.mp4",
+                "manifest.json"
+              ],
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_lesson_task_file_internal_v1_lesson_tasks__task_id__attempts__attempt_id__files__name__put"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptFileOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/v1/jobs/{job_id}/complete": {
       "post": {
         "summary": "Job Complete",
@@ -2185,6 +2464,106 @@
       "post": {
         "summary": "Asset Task Fail",
         "operationId": "asset_task_fail_internal_v1_asset_tasks__task_id__fail_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FailIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/v1/lesson-tasks/{task_id}/complete": {
+      "post": {
+        "summary": "Lesson Task Complete",
+        "operationId": "lesson_task_complete_internal_v1_lesson_tasks__task_id__complete_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LessonCompleteIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/v1/lesson-tasks/{task_id}/fail": {
+      "post": {
+        "summary": "Lesson Task Fail",
+        "operationId": "lesson_task_fail_internal_v1_lesson_tasks__task_id__fail_post",
         "parameters": [
           {
             "name": "task_id",
@@ -2743,6 +3122,31 @@
         ],
         "title": "Body_upload_attempt_file_internal_v1_jobs__job_id__attempts__attempt_id__files__name__put"
       },
+      "Body_upload_lesson_task_file_internal_v1_lesson_tasks__task_id__attempts__attempt_id__files__name__put": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "title": "Sha256"
+          },
+          "lease_generation": {
+            "type": "integer",
+            "title": "Lease Generation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "sha256",
+          "lease_generation"
+        ],
+        "title": "Body_upload_lesson_task_file_internal_v1_lesson_tasks__task_id__attempts__attempt_id__files__name__put"
+      },
       "BrandIdentityOut": {
         "properties": {
           "logo_url": {
@@ -2826,7 +3230,8 @@
               "type": "string",
               "enum": [
                 "video",
-                "asset_prepare"
+                "asset_prepare",
+                "lesson_assemble"
               ]
             },
             "type": "array",
@@ -2847,7 +3252,8 @@
             "type": "string",
             "enum": [
               "video",
-              "asset_prepare"
+              "asset_prepare",
+              "lesson_assemble"
             ],
             "title": "Kind"
           },
@@ -2881,6 +3287,9 @@
               },
               {
                 "$ref": "#/components/schemas/AssetPreparePayload"
+              },
+              {
+                "$ref": "#/components/schemas/LessonAssemblePayload"
               }
             ],
             "title": "Payload"
@@ -3295,6 +3704,342 @@
         ],
         "title": "JobOut"
       },
+      "LessonAssemblePayload": {
+        "properties": {
+          "lesson_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Lesson Id"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "title": "Aspect Ratio"
+          },
+          "logo_file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Logo File Id"
+          },
+          "background_color": {
+            "type": "string",
+            "title": "Background Color"
+          },
+          "accent_color": {
+            "type": "string",
+            "title": "Accent Color"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/LessonAssembleScene"
+            },
+            "type": "array",
+            "title": "Scenes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lesson_id",
+          "aspect_ratio",
+          "logo_file_id",
+          "background_color",
+          "accent_color",
+          "scenes"
+        ],
+        "title": "LessonAssemblePayload",
+        "description": "Identidade congelada na criação da aula e o final.mp4 de cada cena, em ordem."
+      },
+      "LessonAssembleScene": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "shot": {
+            "type": "string",
+            "enum": [
+              "medio",
+              "close"
+            ],
+            "title": "Shot"
+          },
+          "file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "shot",
+          "file_id"
+        ],
+        "title": "LessonAssembleScene"
+      },
+      "LessonCompleteIn": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "lease_generation": {
+            "type": "integer",
+            "title": "Lease Generation"
+          },
+          "result_file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Result File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "lease_generation",
+          "result_file_id"
+        ],
+        "title": "LessonCompleteIn"
+      },
+      "LessonCreatedOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "assembling",
+              "ready",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url"
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "status_url",
+          "download_url"
+        ],
+        "title": "LessonCreatedOut"
+      },
+      "LessonOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "assembling",
+              "ready",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url"
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url"
+          },
+          "avatar_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Avatar Id"
+          },
+          "scene_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scene Id"
+          },
+          "avatar_name": {
+            "type": "string",
+            "title": "Avatar Name"
+          },
+          "scene_name": {
+            "type": "string",
+            "title": "Scene Name"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "title": "Aspect Ratio"
+          },
+          "background_color": {
+            "type": "string",
+            "title": "Background Color"
+          },
+          "accent_color": {
+            "type": "string",
+            "title": "Accent Color"
+          },
+          "requested_by": {
+            "type": "string",
+            "title": "Requested By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/LessonSceneOut"
+            },
+            "type": "array",
+            "title": "Scenes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "status_url",
+          "download_url",
+          "avatar_id",
+          "scene_id",
+          "avatar_name",
+          "scene_name",
+          "aspect_ratio",
+          "background_color",
+          "accent_color",
+          "requested_by",
+          "created_at",
+          "finished_at",
+          "error",
+          "size_bytes",
+          "scenes"
+        ],
+        "title": "LessonOut"
+      },
+      "LessonSceneOut": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "script_text": {
+            "type": "string",
+            "title": "Script Text"
+          },
+          "shot": {
+            "type": "string",
+            "title": "Shot"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "script_text",
+          "shot",
+          "job_id",
+          "status",
+          "stage",
+          "error"
+        ],
+        "title": "LessonSceneOut"
+      },
       "LoginIn": {
         "properties": {
           "username": {
@@ -3314,6 +4059,65 @@
           "password"
         ],
         "title": "LoginIn"
+      },
+      "NewLesson": {
+        "properties": {
+          "avatar_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Avatar Id"
+          },
+          "scene_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scene Id"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "9:16",
+              "16:9"
+            ],
+            "title": "Aspect Ratio",
+            "default": "9:16"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/NewLessonScene"
+            },
+            "type": "array",
+            "title": "Scenes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "avatar_id",
+          "scene_id",
+          "scenes"
+        ],
+        "title": "NewLesson"
+      },
+      "NewLessonScene": {
+        "properties": {
+          "script_text": {
+            "type": "string",
+            "title": "Script Text"
+          },
+          "shot": {
+            "type": "string",
+            "enum": [
+              "medio",
+              "close"
+            ],
+            "title": "Shot",
+            "default": "medio"
+          }
+        },
+        "type": "object",
+        "required": [
+          "script_text"
+        ],
+        "title": "NewLessonScene"
       },
       "NewVideoJob": {
         "properties": {
@@ -4083,6 +4887,15 @@
             },
             "type": "object",
             "title": "Composition"
+          },
+          "shot": {
+            "type": "string",
+            "enum": [
+              "medio",
+              "close"
+            ],
+            "title": "Shot",
+            "default": "medio"
           }
         },
         "type": "object",

@@ -16,6 +16,8 @@ from avatar_api.jobs import (
     AssetFileName,
     AssetPreparePayload,
     AttemptFileName,
+    LessonAssemblePayload,
+    LessonFileName,
     ProcessingStage,
     QueueItem,
     QueueKind,
@@ -54,7 +56,7 @@ class ClaimOut(BaseModel):
     lease_generation: int
     lease_until: datetime
     heartbeat_interval_seconds: int
-    payload: VideoPayload | AssetPreparePayload
+    payload: VideoPayload | AssetPreparePayload | LessonAssemblePayload
 
 
 class AttemptRef(BaseModel):
@@ -120,6 +122,21 @@ def asset_task_heartbeat(
     return HeartbeatOut(lease_until=lease_until)
 
 
+@router.post("/lesson-tasks/{task_id}/heartbeat")
+def lesson_task_heartbeat(
+    task_id: uuid.UUID, body: AttemptRef, db: DbSession, request: Request
+) -> HeartbeatOut:
+    lease_until = jobs.heartbeat(
+        db,
+        "lesson_assemble",
+        task_id,
+        body.attempt_id,
+        body.lease_generation,
+        request.app.state.settings.lease_seconds,
+    )
+    return HeartbeatOut(lease_until=lease_until)
+
+
 # --- arquivos -------------------------------------------------------------------------
 
 
@@ -148,6 +165,10 @@ class VideoCompleteIn(AttemptRef):
     result_file_id: uuid.UUID
     stage_timings: dict[str, float] = Field(default_factory=dict)
     peak_vram_mb: int | None = Field(default=None, ge=0)
+
+
+class LessonCompleteIn(AttemptRef):
+    result_file_id: uuid.UUID
 
 
 class AssetCompleteIn(AttemptRef):
@@ -250,6 +271,32 @@ def upload_asset_task_file(
     )
 
 
+@router.put("/lesson-tasks/{task_id}/attempts/{attempt_id}/files/{name}")
+def upload_lesson_task_file(
+    task_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    name: LessonFileName,
+    file: Annotated[UploadFile, File()],
+    sha256: Sha256Form,
+    lease_generation: Annotated[int, Form()],
+    db: DbSession,
+    request: Request,
+    response: Response,
+) -> AttemptFileOut:
+    return _upload(
+        "lesson_assemble",
+        task_id,
+        attempt_id,
+        lease_generation,
+        name,
+        file,
+        sha256,
+        db,
+        request,
+        response,
+    )
+
+
 def _complete_out(item: QueueItem) -> CompleteOut:
     return CompleteOut(
         id=item.id,
@@ -315,3 +362,25 @@ def asset_task_complete(
 @router.post("/asset-tasks/{task_id}/fail")
 def asset_task_fail(task_id: uuid.UUID, body: FailIn, db: DbSession) -> FailOut:
     return _fail("asset_prepare", task_id, body, db)
+
+
+@router.post("/lesson-tasks/{task_id}/complete")
+def lesson_task_complete(
+    task_id: uuid.UUID, body: LessonCompleteIn, db: DbSession, request: Request
+) -> CompleteOut:
+    task = jobs.complete_item(
+        db,
+        "lesson_assemble",
+        task_id,
+        body.attempt_id,
+        body.lease_generation,
+        request.app.state.settings.data_dir,
+        result_file_id=body.result_file_id,
+    )
+    # A tarefa não guarda o arquivo: ele foi publicado na aula, igual ao informado.
+    return _complete_out(task).model_copy(update={"result_file_id": body.result_file_id})
+
+
+@router.post("/lesson-tasks/{task_id}/fail")
+def lesson_task_fail(task_id: uuid.UUID, body: FailIn, db: DbSession) -> FailOut:
+    return _fail("lesson_assemble", task_id, body, db)

@@ -3,6 +3,8 @@
 Criação com snapshot do pedido e idempotência por solicitante; claim exclusivo por
 SELECT ... FOR UPDATE SKIP LOCKED, lease pelo relógio do banco e heartbeat da tentativa vigente.
 Envio de arquivos, complete e fail só pela tentativa vigente; varredura de leases vencidos.
+Cena de aula é um job comum: a última cena pronta enfileira a montagem (lesson_assemble) e a
+falha definitiva de uma cena ou da montagem deixa a aula em falha, na mesma transação.
 """
 
 import hashlib
@@ -26,6 +28,9 @@ from avatar_api.models import (
     AssetPrepareTask,
     Avatar,
     JobAttempt,
+    Lesson,
+    LessonAssembleTask,
+    LessonScene,
     RenderRecipe,
     Scene,
     StoredFile,
@@ -191,13 +196,14 @@ def create_video_job(
 
 # --- fila: claim, lease e heartbeat ---------------------------------------------------
 
-QueueKind = Literal["video", "asset_prepare"]
+QueueKind = Literal["video", "asset_prepare", "lesson_assemble"]
 ProcessingStage = Literal["compose", "tts", "render", "finalize", "upload"]
-QueueItem = VideoJob | AssetPrepareTask
+QueueItem = VideoJob | AssetPrepareTask | LessonAssembleTask
 
 QUEUE_MODELS: dict[str, type[QueueItem]] = {
     "video": VideoJob,
     "asset_prepare": AssetPrepareTask,
+    "lesson_assemble": LessonAssembleTask,
 }
 
 
@@ -215,11 +221,30 @@ class VideoPayload(BaseModel):
     recipe_spec: dict[str, Any]
     background_color: str | None
     composition: Composition
+    # Plano da cena de aula; vídeo avulso sai sempre em plano médio.
+    shot: Literal["medio", "close"] = "medio"
 
 
 class AssetPreparePayload(BaseModel):
     avatar_id: uuid.UUID
     source_file_id: uuid.UUID
+
+
+class LessonAssembleScene(BaseModel):
+    position: int
+    shot: Literal["medio", "close"]
+    file_id: uuid.UUID
+
+
+class LessonAssemblePayload(BaseModel):
+    """Identidade congelada na criação da aula e o final.mp4 de cada cena, em ordem."""
+
+    lesson_id: uuid.UUID
+    aspect_ratio: str
+    logo_file_id: uuid.UUID
+    background_color: str
+    accent_color: str
+    scenes: list[LessonAssembleScene]
 
 
 @dataclass(frozen=True)
@@ -229,7 +254,7 @@ class Claim:
     attempt_id: uuid.UUID
     lease_generation: int
     lease_until: datetime
-    payload: VideoPayload | AssetPreparePayload
+    payload: VideoPayload | AssetPreparePayload | LessonAssemblePayload
 
 
 def _video_payload(session: Session, job: VideoJob) -> VideoPayload:
@@ -248,6 +273,7 @@ def _video_payload(session: Session, job: VideoJob) -> VideoPayload:
         recipe_spec=recipe.spec,
         background_color=scene.background_color,
         composition=scene.composition,
+        shot=job.shot,
     )
 
 
@@ -256,6 +282,37 @@ def _asset_payload(session: Session, task: AssetPrepareTask) -> AssetPreparePayl
         select(Avatar.source_file_id).where(Avatar.id == task.avatar_id)
     )
     return AssetPreparePayload(avatar_id=task.avatar_id, source_file_id=source_file_id)
+
+
+def _lesson_payload(session: Session, task: LessonAssembleTask) -> LessonAssemblePayload:
+    lesson = session.get(Lesson, task.lesson_id)
+    rows = session.execute(
+        select(LessonScene.position, LessonScene.shot, VideoJob.result_file_id)
+        .join(VideoJob, VideoJob.id == LessonScene.video_job_id)
+        .where(LessonScene.lesson_id == lesson.id)
+        .order_by(LessonScene.position)
+    )
+    return LessonAssemblePayload(
+        lesson_id=lesson.id,
+        aspect_ratio=lesson.aspect_ratio,
+        logo_file_id=lesson.logo_file_id,
+        background_color=lesson.background_color,
+        accent_color=lesson.accent_color,
+        scenes=[
+            LessonAssembleScene(position=position, shot=shot, file_id=file_id)
+            for position, shot, file_id in rows
+        ],
+    )
+
+
+def _payload(
+    session: Session, item: QueueItem
+) -> VideoPayload | AssetPreparePayload | LessonAssemblePayload:
+    if isinstance(item, VideoJob):
+        return _video_payload(session, item)
+    if isinstance(item, LessonAssembleTask):
+        return _lesson_payload(session, item)
+    return _asset_payload(session, item)
 
 
 def _record_video_worker(session: Session, worker_id: str) -> None:
@@ -315,11 +372,7 @@ def claim_next(
             )
         session.flush()
         session.refresh(item)
-        payload = (
-            _video_payload(session, item)
-            if isinstance(item, VideoJob)
-            else _asset_payload(session, item)
-        )
+        payload = _payload(session, item)
         return Claim(
             kind=kind,
             id=item.id,
@@ -418,6 +471,7 @@ ATTEMPT_FILE_TYPES: dict[str, str] = {
 }
 RESULT_FILE_NAME = "final.mp4"
 AssetFileName = Literal["prepared.png", "preview-9x16.png", "preview-16x9.png"]
+LessonFileName = Literal["final.mp4", "manifest.json"]
 # Coluna do avatar preenchida no complete da preparação -> arquivo esperado da tentativa.
 ASSET_RESULT_FILES: dict[str, str] = {
     "prepared_file_id": "prepared.png",
@@ -430,10 +484,17 @@ def attempt_dir(job_id: uuid.UUID, attempt_id: uuid.UUID) -> str:
     return f"jobs/{job_id}/{attempt_id}"
 
 
+def lesson_attempt_dir(lesson_id: uuid.UUID, attempt_id: uuid.UUID) -> str:
+    return f"lessons/{lesson_id}/{attempt_id}"
+
+
 def _item_attempt_dir(item: QueueItem, attempt_id: uuid.UUID) -> str:
-    """Vídeo em jobs/<job_id>/<attempt_id>; preparação em assets/<avatar_id>/<attempt_id>."""
+    """Vídeo em jobs/<job_id>/<attempt_id>; preparação em assets/<avatar_id>/<attempt_id>;
+    montagem em lessons/<lesson_id>/<attempt_id>."""
     if isinstance(item, VideoJob):
         return attempt_dir(item.id, attempt_id)
+    if isinstance(item, LessonAssembleTask):
+        return lesson_attempt_dir(item.lesson_id, attempt_id)
     return f"{asset_dir(item.avatar_id)}/{attempt_id}"
 
 
@@ -482,7 +543,7 @@ def save_attempt_file(
     item_id: uuid.UUID,
     attempt_id: uuid.UUID,
     lease_generation: int,
-    name: AttemptFileName | AssetFileName,
+    name: AttemptFileName | AssetFileName | LessonFileName,
     stream: BinaryIO,
     sha256: str,
 ) -> tuple[StoredFile, bool]:
@@ -501,7 +562,7 @@ def save_attempt_file(
     if existing is not None:
         return existing, False
     try:
-        if kind == "video":
+        if kind != "asset_prepare":
             stored = save_stream(
                 session,
                 data_dir,
@@ -551,13 +612,13 @@ def _intact(data_dir: Path, stored: StoredFile) -> bool:
 def _own_result_file(
     session: Session,
     data_dir: Path,
-    job_id: uuid.UUID,
+    item: VideoJob | LessonAssembleTask,
     attempt_id: uuid.UUID,
     result_file_id: uuid.UUID,
 ) -> StoredFile:
     """O resultado só vale se for o final.mp4 gravado por esta tentativa e presente no volume."""
     stored = session.get(StoredFile, result_file_id)
-    expected_path = f"{attempt_dir(job_id, attempt_id)}/{RESULT_FILE_NAME}"
+    expected_path = f"{_item_attempt_dir(item, attempt_id)}/{RESULT_FILE_NAME}"
     if not _written_by(stored, expected_path, attempt_id):
         raise _invalid_result("O resultado precisa ser o final.mp4 enviado por esta tentativa.")
     if not _intact(data_dir, stored):
@@ -605,6 +666,8 @@ def _same_result(
     """O complete repetido traz o mesmo resultado que a tentativa já publicou."""
     if isinstance(item, VideoJob):
         return item.result_file_id == result_file_id
+    if isinstance(item, LessonAssembleTask):
+        return session.get(Lesson, item.lesson_id).result_file_id == result_file_id
     avatar = session.get(Avatar, item.avatar_id)
     return all(getattr(avatar, column) == asset_files.get(column) for column in ASSET_RESULT_FILES)
 
@@ -627,8 +690,71 @@ def _requeue(item: QueueItem) -> None:
         item.stage = "waiting"
 
 
+def _lock_lesson(session: Session, lesson_id: uuid.UUID) -> Lesson:
+    # A trava serializa as cenas da mesma aula: quem chega depois relê o estado já commitado.
+    return session.scalar(select(Lesson).where(Lesson.id == lesson_id).with_for_update())
+
+
+def _fail_lesson(session: Session, lesson_id: uuid.UUID, error_code: str, message: str) -> None:
+    """Aula em falha com motivo legível; aula já pronta ou já em falha fica como está."""
+    lesson = _lock_lesson(session, lesson_id)
+    if lesson.status in ("queued", "assembling"):
+        lesson.status = "failed"
+        lesson.error_code = error_code
+        lesson.error_message = message
+        lesson.finished_at = func.now()
+
+
+def _advance_lesson(session: Session, job: VideoJob) -> None:
+    """Com todas as cenas ready, enfileira uma única montagem e passa a aula a assembling.
+
+    Corre na transação que publica a cena. A contagem vem depois da trava da aula: de duas
+    conclusões simultâneas, a segunda espera a primeira e vê a cena dela já pronta. O ON
+    CONFLICT pelo lesson_id único garante uma só tarefa mesmo assim.
+    """
+    session.flush()
+    lesson = _lock_lesson(session, job.lesson_id)
+    if lesson.status != "queued":
+        return
+    pending = session.scalar(
+        select(func.count())
+        .select_from(VideoJob)
+        .where(VideoJob.lesson_id == lesson.id, VideoJob.status != "ready")
+    )
+    if pending:
+        return
+    session.execute(
+        insert(LessonAssembleTask)
+        .values(lesson_id=lesson.id)
+        .on_conflict_do_nothing(index_elements=[LessonAssembleTask.lesson_id])
+    )
+    lesson.status = "assembling"
+
+
+def _publish_lesson(
+    session: Session,
+    data_dir: Path,
+    task: LessonAssembleTask,
+    attempt_id: uuid.UUID,
+    result_file_id: uuid.UUID | None,
+) -> None:
+    """Grava o final.mp4 da tentativa na aula e a deixa ready, na transação do complete."""
+    if result_file_id is None:
+        raise _invalid_result("Informe o final.mp4 enviado por esta tentativa.")
+    stored = _own_result_file(session, data_dir, task, attempt_id, result_file_id)
+    lesson = _lock_lesson(session, task.lesson_id)
+    lesson.result_file_id = stored.id
+    lesson.status = "ready"
+    lesson.error_code = None
+    lesson.error_message = None
+    lesson.finished_at = func.now()
+
+
 def _mark_failed(session: Session, item: QueueItem, error_code: str, error_message: str) -> None:
-    """Falha definitiva; na preparação, o avatar fica em falha com a mensagem como motivo."""
+    """Falha definitiva; na preparação, o avatar fica em falha com a mensagem como motivo.
+
+    Na cena de aula e na montagem, a aula fica em falha junto, com o motivo.
+    """
     item.status = "failed"
     item.lease_until = None
     item.error_code = error_code
@@ -639,6 +765,17 @@ def _mark_failed(session: Session, item: QueueItem, error_code: str, error_messa
             update(Avatar)
             .where(Avatar.id == item.avatar_id)
             .values(prepare_status="falha", prepare_error=error_message)
+        )
+    elif isinstance(item, LessonAssembleTask):
+        _fail_lesson(
+            session, item.lesson_id, error_code, f"A montagem da aula falhou: {error_message}"
+        )
+    elif item.lesson_id is not None:
+        _fail_lesson(
+            session,
+            item.lesson_id,
+            "SCENE_FAILED",
+            f"A cena {item.lesson_position} falhou: {error_message}",
         )
 
 
@@ -664,8 +801,10 @@ def complete_item(
     """Conclui o item pela tentativa vigente e faz commit.
 
     No vídeo, result_file_id, ready, finished_at e o outcome completed da tentativa vão na
-    mesma transação. Na preparação, asset_files traz os ids de ASSET_RESULT_FILES, e o
-    avatar recebe os três arquivos e fica ativo na mesma transação que deixa a tarefa ready.
+    mesma transação; na cena de aula, a última pronta enfileira a montagem nela também. Na
+    preparação, asset_files traz os ids de ASSET_RESULT_FILES, e o avatar recebe os três
+    arquivos e fica ativo na mesma transação que deixa a tarefa ready. Na montagem, a aula
+    recebe o final.mp4 da tentativa e fica ready na mesma transação.
     O complete repetido pela tentativa que já concluiu devolve o mesmo resultado sem alterar
     nada.
     """
@@ -683,13 +822,17 @@ def complete_item(
     if isinstance(item, VideoJob):
         if result_file_id is None:
             raise _invalid_result("Informe o final.mp4 enviado por esta tentativa.")
-        stored = _own_result_file(session, data_dir, item_id, attempt_id, result_file_id)
+        stored = _own_result_file(session, data_dir, item, attempt_id, result_file_id)
         item.result_file_id = stored.id
+    elif isinstance(item, LessonAssembleTask):
+        _publish_lesson(session, data_dir, item, attempt_id, result_file_id)
     else:
         _publish_prepared_avatar(session, data_dir, item, attempt_id, asset_files)
     item.status = "ready"
     item.lease_until = None
     item.finished_at = func.now()
+    if isinstance(item, VideoJob) and item.lesson_id is not None:
+        _advance_lesson(session, item)
     _finish_attempt(
         session,
         item,
