@@ -179,7 +179,8 @@ export function Identity() {
     }
   }
 
-  const logo = preview ?? saved?.logo_url ?? null;
+  // Sem arquivo escolhido, a prévia antiga não vale, mesmo antes do efeito limpá-la.
+  const logo = (file ? preview : null) ?? saved?.logo_url ?? null;
 
   return (
     <div className="page">
