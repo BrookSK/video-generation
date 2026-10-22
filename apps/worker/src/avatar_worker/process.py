@@ -3,7 +3,7 @@
 import os
 import signal
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 POLL_SECONDS = 0.1
@@ -44,6 +44,7 @@ def run_process(
     check: Callable[[], None],
     log_path: Path,
     cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> None:
     """Verifica lease antes/durante/depois; stdout/stderr ficam em disco, não na RAM."""
     check()
@@ -54,6 +55,7 @@ def run_process(
                 shell=False,
                 start_new_session=True,
                 cwd=cwd,
+                env=env,
                 stdout=output,
                 stderr=subprocess.STDOUT,
             )
