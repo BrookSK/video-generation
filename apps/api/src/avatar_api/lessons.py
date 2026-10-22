@@ -1,13 +1,16 @@
 """Aulas do painel: várias cenas em ordem, cada uma um job de vídeo comum.
 
 A aula, as cenas e os jobs filhos são gravados na mesma transação, com a identidade visual
-vigente copiada para a aula. A GPU não sabe que o job pertence a uma aula; a montagem final
-roda depois, no supervisor CPU (ver jobs.py).
+vigente (logo, cores e, se ligada, a trilha) copiada para a aula. Tópicos e imagem de cada
+cena vão para a montagem; a imagem é enviada antes, por POST /panel/lessons/images. A GPU
+não sabe que o job pertence a uma aula; a montagem final roda depois, no supervisor CPU
+(ver jobs.py).
 """
 
 import hashlib
 import json
 import uuid
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel
@@ -27,17 +30,26 @@ from avatar_api.jobs import (
 )
 from avatar_api.models import (
     MAX_LESSON_SCENES,
+    MAX_SCENE_TOPICS,
+    MAX_TOPIC_CHARS,
     MIN_LESSON_SCENES,
     Lesson,
     LessonScene,
     RenderRecipe,
+    StoredFile,
     VideoJob,
 )
+from avatar_api.storage import resolve_path, save_stream
+from avatar_api.uploads import ValidatedImage
+
+LESSON_IMAGES_DIR = "lesson-images"
 
 
 class NewLessonScene(BaseModel):
     script_text: Annotated[str, AfterValidator(_without_nul)]
     shot: Literal["medio", "close"] = "medio"
+    topics: list[Annotated[str, AfterValidator(_without_nul)]] = []
+    image_file_id: uuid.UUID | None = None
 
 
 class NewLesson(BaseModel):
@@ -45,6 +57,7 @@ class NewLesson(BaseModel):
     scene_id: uuid.UUID
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
     scenes: list[NewLessonScene]
+    music_enabled: bool = False
 
 
 def lesson_request_hash(payload: NewLesson) -> str:
@@ -88,6 +101,37 @@ def _scene_script(script_text: str, position: int, recipe: RenderRecipe) -> str:
         raise ApiError(exc.status, exc.code, f"Cena {position}: {reason}.", field) from None
 
 
+def _scene_topics(topics: list[str], position: int) -> list[str]:
+    """Até 5 tópicos com até 80 caracteres; o texto fica exatamente como foi informado."""
+    field = f"scenes.{position - 1}.topics"
+
+    def invalid(reason: str) -> ApiError:
+        return ApiError(422, "LESSON_TOPICS_INVALID", f"Cena {position}: {reason}.", field)
+
+    if len(topics) > MAX_SCENE_TOPICS:
+        raise invalid(f"no máximo {MAX_SCENE_TOPICS} tópicos")
+    for number, topic in enumerate(topics, start=1):
+        if not topic.strip():
+            raise invalid(f"o tópico {number} está vazio")
+        if len(topic) > MAX_TOPIC_CHARS:
+            raise invalid(f"o tópico {number} passa de {MAX_TOPIC_CHARS} caracteres")
+    return topics
+
+
+def _scene_image(session: Session, file_id: uuid.UUID | None, position: int) -> None:
+    """A imagem precisa ter sido enviada por POST /panel/lessons/images."""
+    if file_id is None:
+        return
+    stored = session.get(StoredFile, file_id)
+    if stored is None or not stored.relative_path.startswith(f"{LESSON_IMAGES_DIR}/"):
+        raise ApiError(
+            422,
+            "LESSON_IMAGE_NOT_FOUND",
+            f"Cena {position}: a imagem não foi encontrada. Envie a imagem de novo.",
+            f"scenes.{position - 1}.image_file_id",
+        )
+
+
 def create_lesson(
     session: Session,
     user_id: uuid.UUID,
@@ -113,12 +157,22 @@ def create_lesson(
         _scene_script(item.script_text, position, recipe)
         for position, item in enumerate(payload.scenes, start=1)
     ]
+    for position, item in enumerate(payload.scenes, start=1):
+        _scene_topics(item.topics, position)
+        _scene_image(session, item.image_file_id, position)
     identity = get_brand_identity(session)
     if identity is None:
         raise ApiError(
             422,
             "BRAND_IDENTITY_MISSING",
             "Cadastre o logo e as cores na tela Identidade antes de gerar uma aula.",
+        )
+    if payload.music_enabled and identity.music_file_id is None:
+        raise ApiError(
+            422,
+            "BRAND_MUSIC_MISSING",
+            "Envie a trilha na tela Identidade ou desligue a trilha da aula.",
+            "music_enabled",
         )
 
     lesson = Lesson(
@@ -132,7 +186,8 @@ def create_lesson(
         logo_file_id=identity.logo_file_id,
         background_color=identity.background_color,
         accent_color=identity.accent_color,
-        music_file_id=identity.music_file_id,
+        music_enabled=payload.music_enabled,
+        music_file_id=identity.music_file_id if payload.music_enabled else None,
         status="queued",
     )
     jobs = [
@@ -170,9 +225,11 @@ def create_lesson(
                 position=job.lesson_position,
                 script_text=job.script_text,
                 shot=job.shot,
+                topics=item.topics,
+                image_file_id=item.image_file_id,
                 video_job_id=job.id,
             )
-            for job in jobs
+            for job, item in zip(jobs, payload.scenes, strict=True)
         )
         session.commit()
     except IntegrityError:
@@ -184,6 +241,27 @@ def create_lesson(
                 return _replay(existing, hash_)
         raise
     return lesson
+
+
+def save_lesson_image(session: Session, data_dir: Path, image: ValidatedImage) -> StoredFile:
+    """Grava a imagem validada de uma cena; a aula a referencia depois pelo ID."""
+    with image.path.open("rb") as stream:
+        return save_stream(
+            session,
+            data_dir,
+            f"{LESSON_IMAGES_DIR}/{uuid.uuid4()}",
+            f"imagem{image.extension}",
+            stream,
+            image.sha256,
+            image.content_type,
+        )
+
+
+def lesson_image(session: Session, data_dir: Path, file_id: uuid.UUID) -> tuple[Path, StoredFile]:
+    stored = session.get(StoredFile, file_id)
+    if stored is None or not stored.relative_path.startswith(f"{LESSON_IMAGES_DIR}/"):
+        raise ApiError(404, "NOT_FOUND", "Imagem não encontrada.")
+    return resolve_path(data_dir, stored), stored
 
 
 def get_lesson(session: Session, lesson_id: uuid.UUID) -> Lesson:

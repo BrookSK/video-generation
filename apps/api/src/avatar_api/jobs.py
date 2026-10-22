@@ -234,6 +234,9 @@ class LessonAssembleScene(BaseModel):
     position: int
     shot: Literal["medio", "close"]
     file_id: uuid.UUID
+    script_text: str
+    topics: list[str]
+    image_file_id: uuid.UUID | None
 
 
 class LessonAssemblePayload(BaseModel):
@@ -244,6 +247,7 @@ class LessonAssemblePayload(BaseModel):
     logo_file_id: uuid.UUID
     background_color: str
     accent_color: str
+    music_file_id: uuid.UUID | None
     scenes: list[LessonAssembleScene]
 
 
@@ -287,7 +291,7 @@ def _asset_payload(session: Session, task: AssetPrepareTask) -> AssetPreparePayl
 def _lesson_payload(session: Session, task: LessonAssembleTask) -> LessonAssemblePayload:
     lesson = session.get(Lesson, task.lesson_id)
     rows = session.execute(
-        select(LessonScene.position, LessonScene.shot, VideoJob.result_file_id)
+        select(LessonScene, VideoJob.result_file_id)
         .join(VideoJob, VideoJob.id == LessonScene.video_job_id)
         .where(LessonScene.lesson_id == lesson.id)
         .order_by(LessonScene.position)
@@ -298,9 +302,17 @@ def _lesson_payload(session: Session, task: LessonAssembleTask) -> LessonAssembl
         logo_file_id=lesson.logo_file_id,
         background_color=lesson.background_color,
         accent_color=lesson.accent_color,
+        music_file_id=lesson.music_file_id if lesson.music_enabled else None,
         scenes=[
-            LessonAssembleScene(position=position, shot=shot, file_id=file_id)
-            for position, shot, file_id in rows
+            LessonAssembleScene(
+                position=scene.position,
+                shot=scene.shot,
+                file_id=file_id,
+                script_text=scene.script_text,
+                topics=scene.topics,
+                image_file_id=scene.image_file_id,
+            )
+            for scene, file_id in rows
         ],
     )
 

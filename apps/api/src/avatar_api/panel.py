@@ -708,6 +708,8 @@ class LessonSceneOut(BaseModel):
     status: Literal["queued", "processing", "ready", "failed"]
     stage: str | None
     error: JobErrorOut | None
+    topics: list[str]
+    image_url: str | None
 
 
 class LessonOut(LessonCreatedOut):
@@ -718,6 +720,7 @@ class LessonOut(LessonCreatedOut):
     aspect_ratio: str
     background_color: str
     accent_color: str
+    music_enabled: bool
     requested_by: str
     created_at: datetime
     finished_at: datetime | None
@@ -742,6 +745,38 @@ def _error_out(status: str, code: str | None, message: str | None) -> JobErrorOu
     return JobErrorOut(code=code or "", message=message or "")
 
 
+def _lesson_image_url(file_id: uuid.UUID | None) -> str | None:
+    return f"/panel/lessons/images/{file_id}" if file_id else None
+
+
+class LessonImageOut(BaseModel):
+    id: uuid.UUID
+    url: str
+
+
+@router.post("/lessons/images", status_code=201)
+def upload_lesson_image(
+    file: Annotated[UploadFile, File()],
+    _: CurrentPanelSession,
+    db: DbSession,
+    request: Request,
+) -> LessonImageOut:
+    """Imagem de uma cena, validada como a do avatar; a aula a referencia pelo ID."""
+    data_dir = request.app.state.settings.data_dir
+    with tempfile.TemporaryDirectory(prefix="lesson-image-") as tmp_dir:
+        image = validate_image(file.file, "file", Path(tmp_dir))
+        stored = lessons.save_lesson_image(db, data_dir, image)
+    return LessonImageOut(id=stored.id, url=_lesson_image_url(stored.id))
+
+
+@router.get("/lessons/images/{file_id}")
+def lesson_image(
+    file_id: uuid.UUID, _: CurrentPanelSession, db: DbSession, request: Request
+) -> FileResponse:
+    path, stored = lessons.lesson_image(db, request.app.state.settings.data_dir, file_id)
+    return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
+
+
 def _lesson_out(db: Session, lesson: Lesson, data_dir: Path) -> LessonOut:
     person = db.get(User, lesson.requested_by_user_id)
     stored = db.get(StoredFile, lesson.result_file_id) if lesson.result_file_id else None
@@ -758,6 +793,7 @@ def _lesson_out(db: Session, lesson: Lesson, data_dir: Path) -> LessonOut:
         aspect_ratio=lesson.aspect_ratio,
         background_color=lesson.background_color,
         accent_color=lesson.accent_color,
+        music_enabled=lesson.music_enabled,
         requested_by=person.display_name or person.username,
         created_at=lesson.created_at,
         finished_at=lesson.finished_at,
@@ -772,6 +808,8 @@ def _lesson_out(db: Session, lesson: Lesson, data_dir: Path) -> LessonOut:
                 status=job.status,
                 stage=job.stage if job.status == "processing" else None,
                 error=_error_out(job.status, job.error_code, job.error_message),
+                topics=scene.topics,
+                image_url=_lesson_image_url(scene.image_file_id),
             )
             for scene, job in lessons.lesson_scenes(db, lesson.id)
         ],

@@ -6,7 +6,16 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from conftest import lesson_body, logo_png, put_identity
+from conftest import (
+    MP3,
+    SCENE_TEXTS,
+    image_file,
+    lesson_body,
+    logo_png,
+    put_identity,
+    put_music,
+    upload_lesson_image,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select, text, update
 from sqlalchemy.orm import Session
@@ -341,10 +350,17 @@ def test_payload_congelado_depois_de_trocar_a_identidade(
         "logo_file_id": str(old_logo),
         "background_color": "#0B2545",
         "accent_color": "#F2A541",
+        "music_file_id": None,
         "scenes": [
-            {"position": 1, "shot": "medio", "file_id": str(results[1])},
-            {"position": 2, "shot": "close", "file_id": str(results[2])},
-            {"position": 3, "shot": "medio", "file_id": str(results[3])},
+            {
+                "position": position,
+                "shot": shot,
+                "file_id": str(results[position]),
+                "script_text": SCENE_TEXTS[position - 1],
+                "topics": [],
+                "image_file_id": None,
+            }
+            for position, shot in ((1, "medio"), (2, "close"), (3, "medio"))
         ],
     }
     logo = lesson_panel.get(f"/internal/v1/files/{old_logo}", headers=WORKER)
@@ -503,3 +519,30 @@ def test_falha_da_montagem_retry_e_falha_definitiva(
     assert lesson.error_message == (
         "A montagem da aula falhou: A cena 2 tem resolução diferente do formato da aula."
     )
+
+
+def test_payload_leva_texto_topicos_imagem_e_trilha_congelada(
+    lesson_panel, brand, seeded_catalog, worker_engine
+):
+    image = upload_lesson_image(lesson_panel, image_file()).json()
+    put_music(lesson_panel)
+    with Session(worker_engine) as db:
+        frozen_music = db.get(BrandIdentity, 1).music_file_id
+    body = lesson_body(seeded_catalog, music_enabled=True)
+    body["scenes"][0]["topics"] = ["Isolar a área", "Usar EPI"]
+    body["scenes"][2]["image_file_id"] = image["id"]
+    response = lesson_panel.post("/panel/lessons", json=body)
+    assert response.status_code == 202, response.text
+    put_music(lesson_panel, MP3 + b"nova")
+    finish_all_scenes(lesson_panel)
+
+    payload = claim_assembly(lesson_panel)["payload"]
+
+    assert payload["music_file_id"] == str(frozen_music)
+    assert [s["topics"] for s in payload["scenes"]] == [["Isolar a área", "Usar EPI"], [], []]
+    assert [s["image_file_id"] for s in payload["scenes"]] == [None, None, image["id"]]
+    assert [s["script_text"] for s in payload["scenes"]] == list(SCENE_TEXTS)
+    music = lesson_panel.get(f"/internal/v1/files/{frozen_music}", headers=WORKER)
+    assert music.content == MP3
+    picture = lesson_panel.get(f"/internal/v1/files/{image['id']}", headers=WORKER)
+    assert picture.content == image_file()

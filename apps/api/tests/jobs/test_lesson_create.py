@@ -2,7 +2,15 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from conftest import SCENE_TEXTS, lesson_body, logo_png, put_identity
+from conftest import (
+    SCENE_TEXTS,
+    image_file,
+    lesson_body,
+    logo_png,
+    put_identity,
+    put_music,
+    upload_lesson_image,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
@@ -16,6 +24,7 @@ from avatar_api.models import (
     Lesson,
     LessonScene,
     Scene,
+    StoredFile,
     User,
     VideoJob,
 )
@@ -344,3 +353,122 @@ def test_corrida_de_insercao_com_a_mesma_chave_rele_a_aula_vencedora(
     assert same.status_code == 202, same.text
     assert same.json()["id"] == winner.json()["id"]
     assert counts(session) == (1, 3, 3)
+
+
+# --- tópicos, imagem e trilha -----------------------------------------------------------
+
+
+def test_topicos_imagem_e_trilha_ficam_na_aula_e_nas_cenas(
+    lesson_panel, brand, seeded_catalog, session
+):
+    uploaded = upload_lesson_image(lesson_panel, image_file("WEBP"), "tela.webp")
+    assert uploaded.status_code == 201, uploaded.text
+    image = uploaded.json()
+    assert image["url"] == f"/panel/lessons/images/{image['id']}"
+    put_music(lesson_panel)
+    body = lesson_body(seeded_catalog, music_enabled=True)
+    body["scenes"][0]["topics"] = ["Isolar a área", "  Usar EPI  "]
+    body["scenes"][1]["image_file_id"] = image["id"]
+
+    response = post_lesson(lesson_panel, body)
+
+    assert response.status_code == 202, response.text
+    session.expire_all()
+    lesson = session.get(Lesson, uuid.UUID(response.json()["id"]))
+    identity = session.get(BrandIdentity, 1)
+    assert lesson.music_enabled is True
+    assert lesson.music_file_id == identity.music_file_id is not None
+    scenes = session.scalars(
+        select(LessonScene).where(LessonScene.lesson_id == lesson.id).order_by(LessonScene.position)
+    ).all()
+    assert [s.topics for s in scenes] == [["Isolar a área", "  Usar EPI  "], [], []]
+    assert [s.image_file_id for s in scenes] == [None, uuid.UUID(image["id"]), None]
+    shown = lesson_panel.get(f"/panel/lessons/{lesson.id}").json()
+    assert shown["music_enabled"] is True
+    assert [s["topics"] for s in shown["scenes"]][0] == ["Isolar a área", "  Usar EPI  "]
+    assert [s["image_url"] for s in shown["scenes"]] == [None, image["url"], None]
+    served = lesson_panel.get(image["url"])
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/webp"
+
+
+def test_trilha_desligada_nao_congela_trilha(lesson_panel, brand, seeded_catalog, session):
+    put_music(lesson_panel)
+
+    response = post_lesson(lesson_panel, lesson_body(seeded_catalog))
+
+    assert response.status_code == 202, response.text
+    session.expire_all()
+    lesson = session.get(Lesson, uuid.UUID(response.json()["id"]))
+    assert (lesson.music_enabled, lesson.music_file_id) == (False, None)
+
+
+@pytest.mark.parametrize(
+    ("topics", "scene", "message"),
+    [
+        (["a", "b", "c", "d", "e", "f"], 2, "Cena 2: no máximo 5 tópicos."),
+        (["ok", "x" * 81], 1, "Cena 1: o tópico 2 passa de 80 caracteres."),
+        (["ok", "   "], 3, "Cena 3: o tópico 2 está vazio."),
+    ],
+)
+def test_topicos_fora_do_limite_recusados_indicando_a_cena(
+    lesson_panel, brand, seeded_catalog, session, topics, scene, message
+):
+    body = lesson_body(seeded_catalog)
+    body["scenes"][scene - 1]["topics"] = topics
+
+    response = post_lesson(lesson_panel, body)
+
+    error = assert_error(response, 422, "LESSON_TOPICS_INVALID", f"scenes.{scene - 1}.topics")
+    assert error["message"] == message
+    assert counts(session) == (0, 0, 0)
+
+
+def test_cinco_topicos_de_80_caracteres_sao_aceitos(lesson_panel, brand, seeded_catalog):
+    body = lesson_body(seeded_catalog)
+    body["scenes"][0]["topics"] = ["t" * 80] * 5
+
+    assert post_lesson(lesson_panel, body).status_code == 202
+
+
+def test_imagem_invalida_recusada_no_upload(lesson_panel, session):
+    svg = b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>'
+
+    response = upload_lesson_image(lesson_panel, svg, "tela.svg")
+
+    assert_error(response, 422, "UNSUPPORTED_FILE_TYPE", "file")
+    session.expire_all()
+    assert session.scalar(select(func.count()).select_from(StoredFile)) == 0
+
+
+def test_imagem_que_nao_veio_do_upload_de_cena_e_recusada(
+    lesson_panel, brand, seeded_catalog, session
+):
+    logo_id = session.get(BrandIdentity, 1).logo_file_id
+    for image_id in (str(uuid.uuid4()), str(logo_id)):
+        body = lesson_body(seeded_catalog)
+        body["scenes"][0]["image_file_id"] = image_id
+
+        response = post_lesson(lesson_panel, body)
+
+        error = assert_error(response, 422, "LESSON_IMAGE_NOT_FOUND", "scenes.0.image_file_id")
+        assert error["message"].startswith("Cena 1:")
+    assert counts(session) == (0, 0, 0)
+    assert lesson_panel.get(f"/panel/lessons/images/{logo_id}").status_code == 404
+
+
+def test_trilha_ligada_sem_trilha_cadastrada_e_recusada(
+    lesson_panel, brand, seeded_catalog, session
+):
+    response = post_lesson(lesson_panel, lesson_body(seeded_catalog, music_enabled=True))
+
+    error = assert_error(response, 422, "BRAND_MUSIC_MISSING", "music_enabled")
+    assert "Identidade" in error["message"]
+    assert counts(session) == (0, 0, 0)
+
+
+def test_upload_de_imagem_exige_sessao_e_csrf(client, lesson_panel):
+    assert upload_lesson_image(client, image_file()).status_code == 401
+    lesson_panel.headers.pop("X-CSRF-Token")
+
+    assert upload_lesson_image(lesson_panel, image_file()).status_code == 403

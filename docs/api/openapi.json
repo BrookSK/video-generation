@@ -723,6 +723,74 @@
         }
       }
     },
+    "/panel/brand-identity/music": {
+      "get": {
+        "summary": "Brand Identity Music",
+        "operationId": "brand_identity_music_panel_brand_identity_music_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Brand Music",
+        "operationId": "put_brand_music_panel_brand_identity_music_put",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_put_brand_music_panel_brand_identity_music_put"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandIdentityOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Brand Music",
+        "operationId": "delete_brand_music_panel_brand_identity_music_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandIdentityOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/generation-config": {
       "get": {
         "summary": "Generation Config",
@@ -890,6 +958,83 @@
               "type": "string",
               "format": "uuid",
               "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/lessons/images": {
+      "post": {
+        "summary": "Upload Lesson Image",
+        "description": "Imagem de uma cena, validada como a do avatar; a aula a referencia pelo ID.",
+        "operationId": "upload_lesson_image_panel_lessons_images_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_lesson_image_panel_lessons_images_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonImageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/lessons/images/{file_id}": {
+      "get": {
+        "summary": "Lesson Image",
+        "operationId": "lesson_image_panel_lessons_images__file_id__get",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "File Id"
             }
           }
         ],
@@ -3072,6 +3217,20 @@
         ],
         "title": "Body_put_brand_identity_panel_brand_identity_put"
       },
+      "Body_put_brand_music_panel_brand_identity_music_put": {
+        "properties": {
+          "music": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Music"
+          }
+        },
+        "type": "object",
+        "required": [
+          "music"
+        ],
+        "title": "Body_put_brand_music_panel_brand_identity_music_put"
+      },
       "Body_upload_asset_task_file_internal_v1_asset_tasks__task_id__attempts__attempt_id__files__name__put": {
         "properties": {
           "file": {
@@ -3122,6 +3281,20 @@
         ],
         "title": "Body_upload_attempt_file_internal_v1_jobs__job_id__attempts__attempt_id__files__name__put"
       },
+      "Body_upload_lesson_image_panel_lessons_images_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_lesson_image_panel_lessons_images_post"
+      },
       "Body_upload_lesson_task_file_internal_v1_lesson_tasks__task_id__attempts__attempt_id__files__name__put": {
         "properties": {
           "file": {
@@ -3159,6 +3332,17 @@
               }
             ],
             "title": "Logo Url"
+          },
+          "music_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Music Url"
           },
           "background_color": {
             "anyOf": [
@@ -3209,6 +3393,7 @@
         "type": "object",
         "required": [
           "logo_url",
+          "music_url",
           "background_color",
           "accent_color",
           "updated_at",
@@ -3728,6 +3913,18 @@
             "type": "string",
             "title": "Accent Color"
           },
+          "music_file_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Music File Id"
+          },
           "scenes": {
             "items": {
               "$ref": "#/components/schemas/LessonAssembleScene"
@@ -3743,6 +3940,7 @@
           "logo_file_id",
           "background_color",
           "accent_color",
+          "music_file_id",
           "scenes"
         ],
         "title": "LessonAssemblePayload",
@@ -3766,13 +3964,39 @@
             "type": "string",
             "format": "uuid",
             "title": "File Id"
+          },
+          "script_text": {
+            "type": "string",
+            "title": "Script Text"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topics"
+          },
+          "image_file_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image File Id"
           }
         },
         "type": "object",
         "required": [
           "position",
           "shot",
-          "file_id"
+          "file_id",
+          "script_text",
+          "topics",
+          "image_file_id"
         ],
         "title": "LessonAssembleScene"
       },
@@ -3843,6 +4067,25 @@
         ],
         "title": "LessonCreatedOut"
       },
+      "LessonImageOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "url"
+        ],
+        "title": "LessonImageOut"
+      },
       "LessonOut": {
         "properties": {
           "id": {
@@ -3904,6 +4147,10 @@
           "accent_color": {
             "type": "string",
             "title": "Accent Color"
+          },
+          "music_enabled": {
+            "type": "boolean",
+            "title": "Music Enabled"
           },
           "requested_by": {
             "type": "string",
@@ -3968,6 +4215,7 @@
           "aspect_ratio",
           "background_color",
           "accent_color",
+          "music_enabled",
           "requested_by",
           "created_at",
           "finished_at",
@@ -4026,6 +4274,24 @@
                 "type": "null"
               }
             ]
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topics"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
           }
         },
         "type": "object",
@@ -4036,7 +4302,9 @@
           "job_id",
           "status",
           "stage",
-          "error"
+          "error",
+          "topics",
+          "image_url"
         ],
         "title": "LessonSceneOut"
       },
@@ -4087,6 +4355,11 @@
             },
             "type": "array",
             "title": "Scenes"
+          },
+          "music_enabled": {
+            "type": "boolean",
+            "title": "Music Enabled",
+            "default": false
           }
         },
         "type": "object",
@@ -4111,6 +4384,26 @@
             ],
             "title": "Shot",
             "default": "medio"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topics",
+            "default": []
+          },
+          "image_file_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image File Id"
           }
         },
         "type": "object",
