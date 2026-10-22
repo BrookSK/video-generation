@@ -342,7 +342,7 @@ class Supervisor:
 
     def _handle_lesson(self, task: Task, heartbeat: Heartbeat) -> None:
         """Baixa cenas e logo, monta a aula em diretório temporário, envia e conclui."""
-        missing = "Um arquivo da aula (cena ou logo) não está disponível."
+        missing = "Um arquivo da aula (cena, imagem, logo ou trilha) não está disponível."
         try:
             with tempfile.TemporaryDirectory(
                 prefix=f"avatar-lesson-{task.attempt_id}-"
@@ -353,10 +353,30 @@ class Supervisor:
                     path = work / f"scene-{scene['position']}.mp4"
                     self._download_path(task, heartbeat, scene["file_id"], path, missing)
                     scenes[scene["position"]] = path
+                images = {}
+                for scene in task.payload["scenes"]:
+                    if scene.get("image_file_id"):
+                        path = work / f"image-{scene['position']}"
+                        self._download_path(task, heartbeat, scene["image_file_id"], path, missing)
+                        images[scene["position"]] = path
                 logo = work / "logo"
                 self._download_path(task, heartbeat, task.payload["logo_file_id"], logo, missing)
+                music = None
+                if task.payload.get("music_file_id"):
+                    music = work / "music"
+                    self._download_path(
+                        task, heartbeat, task.payload["music_file_id"], music, missing
+                    )
                 _log(logging.INFO, task.id, "download", "OK")
-                result = self._assemble(task.payload, scenes, logo, work / "out", heartbeat.check)
+                result = self._assemble(
+                    task.payload,
+                    scenes,
+                    logo,
+                    work / "out",
+                    heartbeat.check,
+                    images=images,
+                    music=music,
+                )
                 heartbeat.check()
                 manifest = json.loads(result.files["manifest.json"].read_text())
                 manifest.update(

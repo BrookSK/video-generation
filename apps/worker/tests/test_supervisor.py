@@ -632,8 +632,16 @@ class LessonApi(FakeApi):
             "logo_file_id": LOGO_ID,
             "background_color": "#0B2545",
             "accent_color": "#F2A541",
+            "music_file_id": None,
             "scenes": [
-                {"position": position, "shot": shot, "file_id": f"scene-{position}"}
+                {
+                    "position": position,
+                    "shot": shot,
+                    "file_id": f"scene-{position}",
+                    "script_text": f"Fala da cena {position}.",
+                    "topics": [],
+                    "image_file_id": None,
+                }
                 for position, shot in ((1, "medio"), (2, "close"))
             ],
         }
@@ -720,7 +728,7 @@ def test_montagem_do_claim_ao_complete(lesson_files, tmp_path):
 def test_stale_attempt_no_meio_nao_envia_nem_conclui(lesson_files):
     api = LessonApi(lesson_files, heartbeat_status=409)
 
-    def assemble(payload, scenes, logo, work, check):
+    def assemble(payload, scenes, logo, work, check, images=None, music=None):
         assert api.heartbeat_seen.wait(5)
         time.sleep(0.05)
         check()
@@ -746,7 +754,7 @@ def test_cena_de_formato_errado_falha_com_output_invalid_sem_retry(lesson_files,
 def test_erro_inesperado_na_montagem_vira_transient_com_retry(lesson_files):
     api = LessonApi(lesson_files)
 
-    def assemble(*_):
+    def assemble(*_, **__):
         raise RuntimeError("falha interna com detalhe que não pode vazar")
 
     _lesson_supervisor(api, assemble).process_next()
@@ -754,3 +762,26 @@ def test_erro_inesperado_na_montagem_vira_transient_com_retry(lesson_files):
     assert api.failed["error_code"] == "TRANSIENT"
     assert api.failed["retryable"] is True
     assert "detalhe" not in api.failed["error_message"]
+
+
+def test_montagem_baixa_imagem_da_cena_e_trilha(lesson_files):
+    lesson_files["imagem-2"] = _png(Image.new("RGB", (64, 32), (200, 0, 200)))
+    lesson_files["trilha"] = b"RIFF-trilha"
+    api = LessonApi(lesson_files)
+    api.payload["scenes"][1]["image_file_id"] = "imagem-2"
+    api.payload["music_file_id"] = "trilha"
+    received = {}
+
+    def assemble(payload, scenes, logo, work, check, images=None, music=None):
+        received.update(
+            images={pos: path.read_bytes() for pos, path in images.items()},
+            music=music.read_bytes(),
+        )
+        raise RuntimeError("parar depois de conferir as entradas")
+
+    _lesson_supervisor(api, assemble).process_next()
+
+    assert received["images"] == {2: lesson_files["imagem-2"]}
+    assert received["music"] == b"RIFF-trilha"
+    paths = [path for _, path in api.calls]
+    assert "/internal/v1/files/imagem-2" in paths and "/internal/v1/files/trilha" in paths
