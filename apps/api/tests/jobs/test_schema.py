@@ -20,6 +20,10 @@ from avatar_api.models import (
     ApiKey,
     Avatar,
     Base,
+    BrandIdentity,
+    Lesson,
+    LessonAssembleTask,
+    LessonScene,
     RenderRecipe,
     Scene,
     StoredFile,
@@ -212,6 +216,38 @@ def test_migracao_de_presenca_preserva_usuario_existente(empty_database_url, mig
         engine.dispose()
 
 
+LESSON_TABLES = {"brand_identity", "lessons", "lesson_scenes", "lesson_assemble_tasks"}
+LESSON_JOB_COLUMNS = {"lesson_id", "lesson_position", "shot"}
+
+
+def _job_columns(database_url: str) -> set[str]:
+    engine = create_db_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            return {column["name"] for column in inspect(connection).get_columns("video_jobs")}
+    finally:
+        engine.dispose()
+
+
+def test_migracao_de_aulas_e_aditiva_e_reversivel(empty_database_url, migrate):
+    migrate(empty_database_url, "0003")
+    tables, _ = _tables_and_revision(empty_database_url)
+    assert not tables & LESSON_TABLES
+    assert not _job_columns(empty_database_url) & LESSON_JOB_COLUMNS
+
+    migrate(empty_database_url)
+    tables, revision = _tables_and_revision(empty_database_url)
+    assert LESSON_TABLES <= tables
+    assert revision == "0004"
+    assert LESSON_JOB_COLUMNS <= _job_columns(empty_database_url)
+
+    migrate(empty_database_url, "0003", downgrade=True)
+    tables, revision = _tables_and_revision(empty_database_url)
+    assert not tables & LESSON_TABLES
+    assert revision == "0003"
+    assert not _job_columns(empty_database_url) & LESSON_JOB_COLUMNS
+
+
 def test_modelos_coincidem_com_a_migracao(engine):
     with engine.connect() as connection:
         diff = compare_metadata(MigrationContext.configure(connection), Base.metadata)
@@ -220,7 +256,14 @@ def test_modelos_coincidem_com_a_migracao(engine):
 
 def test_fks_de_job_e_tarefa_usam_restrict(engine):
     inspector = inspect(engine)
-    for table in ("video_jobs", "job_attempts", "asset_prepare_tasks", "avatars", "scenes"):
+    for table in (
+        "video_jobs",
+        "job_attempts",
+        "asset_prepare_tasks",
+        "avatars",
+        "scenes",
+        *sorted(LESSON_TABLES),
+    ):
         for fk in inspector.get_foreign_keys(table):
             assert fk["options"].get("ondelete") == "RESTRICT", (table, fk["name"])
 
@@ -329,6 +372,127 @@ def test_exclusao_de_arquivo_do_snapshot_bloqueada(session, catalog):
     session.rollback()
     assert isinstance(exc_info.value.orig, psycopg.errors.RestrictViolation)
     assert exc_info.value.orig.diag.constraint_name == "fk_video_jobs_scene_file_id_stored_files"
+
+
+def _identity(session: Session, user: User, **overrides) -> BrandIdentity:
+    values = {
+        "id": 1,
+        "logo_file_id": add_file(session, "logo.png").id,
+        "background_color": "#0B2545",
+        "accent_color": "#F2A541",
+        "updated_by_user_id": user.id,
+    }
+    values.update(overrides)
+    return BrandIdentity(**values)
+
+
+def _lesson(session: Session, catalog: dict, **overrides) -> Lesson:
+    values = {
+        "requested_by_user_id": catalog["user"].id,
+        "avatar_id": catalog["avatar"].id,
+        "scene_id": catalog["scene"].id,
+        "aspect_ratio": "16:9",
+        "logo_file_id": add_file(session, "logo.png").id,
+        "background_color": "#0B2545",
+        "accent_color": "#F2A541",
+    }
+    values.update(overrides)
+    return Lesson(**values)
+
+
+def test_identidade_tem_linha_unica_e_cores_hexadecimais(session, catalog):
+    session.add(_identity(session, catalog["user"]))
+    session.commit()
+
+    session.add(_identity(session, catalog["user"], id=2))
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_brand_identity_single_row")
+
+    session.execute(delete(BrandIdentity))
+    session.add(_identity(session, catalog["user"], background_color="azul"))
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_brand_identity_background_color")
+
+
+def test_aula_ready_exige_arquivo_final(session, catalog):
+    session.add(_lesson(session, catalog, status="ready"))
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_lessons_ready_has_file")
+
+
+def test_aula_com_estado_ou_cor_fora_do_dominio_recusada(session, catalog):
+    session.add(_lesson(session, catalog, status="processing"))
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_lessons_status")
+
+    session.add(_lesson(session, catalog, accent_color="#FFF"))
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_lessons_accent_color")
+
+
+def test_cena_de_aula_tem_posicao_unica_e_plano_valido(session, catalog):
+    lesson = _lesson(session, catalog)
+    session.add(lesson)
+    session.flush()
+    jobs = [
+        new_job(catalog, lesson_id=lesson.id, lesson_position=position, shot="close")
+        for position in (1, 2)
+    ]
+    session.add_all(jobs)
+    session.flush()
+    session.add(
+        LessonScene(
+            lesson_id=lesson.id, position=1, script_text="a", shot="medio", video_job_id=jobs[0].id
+        )
+    )
+    session.commit()
+
+    session.add(
+        LessonScene(
+            lesson_id=lesson.id, position=1, script_text="b", shot="close", video_job_id=jobs[1].id
+        )
+    )
+    assert_violation(
+        session, psycopg.errors.UniqueViolation, "uq_lesson_scenes_lesson_id_position"
+    )
+
+    session.add(
+        LessonScene(
+            lesson_id=lesson.id, position=2, script_text="b", shot="aberto", video_job_id=jobs[1].id
+        )
+    )
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_lesson_scenes_shot")
+
+    session.add(
+        LessonScene(
+            lesson_id=lesson.id, position=13, script_text="b", shot="close", video_job_id=jobs[1].id
+        )
+    )
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_lesson_scenes_position")
+
+
+def test_job_avulso_fica_em_plano_medio_e_cena_exige_aula_e_posicao(session, catalog):
+    job = new_job(catalog)
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    assert (job.shot, job.lesson_id, job.lesson_position) == ("medio", None, None)
+
+    session.add(new_job(catalog, lesson_position=1))
+    assert_violation(
+        session, psycopg.errors.CheckViolation, "ck_video_jobs_lesson_position_with_lesson"
+    )
+
+    session.add(new_job(catalog, shot="aberto"))
+    assert_violation(session, psycopg.errors.CheckViolation, "ck_video_jobs_shot")
+
+
+def test_uma_unica_montagem_por_aula(session, catalog):
+    lesson = _lesson(session, catalog)
+    session.add(lesson)
+    session.flush()
+    session.add(LessonAssembleTask(lesson_id=lesson.id))
+    session.commit()
+
+    session.add(LessonAssembleTask(lesson_id=lesson.id))
+    assert_violation(
+        session, psycopg.errors.UniqueViolation, "uq_lesson_assemble_tasks_lesson_id"
+    )
 
 
 # --- engine e sessão por requisição ------------------------------------------------------

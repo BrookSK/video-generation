@@ -2,7 +2,7 @@
 
 ## 1. Dados
 
-- [ ] 1.1 Criar a migração aditiva `apps/api/migrations/versions/0004_aulas_e_identidade.py` e os modelos SQLAlchemy de `brand_identity` (linha única), `lessons`, `lesson_scenes`, `lesson_assemble_tasks` (no formato de `asset_prepare_tasks`, `lesson_id` único) e das colunas `lesson_id`, `lesson_position` e `shot` em `video_jobs`, com CHECK de domínio, `ready_has_file` na aula e FKs RESTRICT; verificar com `uv run --directory apps/api ruff check .` e `uv run --directory apps/api pytest tests/jobs/test_schema.py` (upgrade até head, downgrade até base e compare_metadata sem diferença)
+- [x] 1.1 Criar a migração aditiva `apps/api/migrations/versions/0004_aulas_e_identidade.py` e os modelos SQLAlchemy de `brand_identity` (linha única), `lessons`, `lesson_scenes`, `lesson_assemble_tasks` (no formato de `asset_prepare_tasks`, `lesson_id` único) e das colunas `lesson_id`, `lesson_position` e `shot` em `video_jobs`, com CHECK de domínio, `ready_has_file` na aula e FKs RESTRICT; verificar com `uv run --directory apps/api ruff check .` e `uv run --directory apps/api pytest tests/jobs/test_schema.py` (upgrade até head, downgrade até base e compare_metadata sem diferença)
 
 ## 2. Identidade e close no cadastro
 

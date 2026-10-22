@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -34,6 +35,11 @@ ASPECT_RATIOS = ("9:16", "16:9")
 QUEUE_STATUSES = ("queued", "processing", "ready", "failed")
 JOB_STAGES = ("waiting", "compose", "tts", "render", "finalize", "upload")
 ATTEMPT_OUTCOMES = ("running", "completed", "failed", "expired")
+SHOTS = ("medio", "close")
+LESSON_STATUSES = ("queued", "assembling", "ready", "failed")
+MIN_LESSON_SCENES = 2
+MAX_LESSON_SCENES = 12
+HEX_COLOR_CHECK = "~ '^#[0-9A-Fa-f]{6}$'"
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -209,6 +215,11 @@ class VideoJob(Base):
             ),
         ),
         Index("ix_video_jobs_status_created_at", "status", "created_at"),
+        CheckConstraint(_in("shot", SHOTS), name="shot"),
+        CheckConstraint(
+            "(lesson_id IS NULL) = (lesson_position IS NULL)", name="lesson_position_with_lesson"
+        ),
+        UniqueConstraint("lesson_id", "lesson_position"),
     )
 
     id: Mapped[uuid.UUID] = _id()
@@ -235,6 +246,10 @@ class VideoJob(Base):
     error_code: Mapped[str | None] = mapped_column(Text)
     error_message: Mapped[str | None] = mapped_column(Text)
     result_file_id: Mapped[uuid.UUID | None] = _fk("stored_files.id", nullable=True)
+    # Cena de aula: o job é um vídeo comum; só a aula sabe que ele faz parte dela.
+    lesson_id: Mapped[uuid.UUID | None] = _fk("lessons.id", nullable=True)
+    lesson_position: Mapped[int | None] = mapped_column(Integer)
+    shot: Mapped[str] = mapped_column(Text, server_default=text("'medio'"))
     created_at: Mapped[datetime] = _created_at()
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
@@ -284,6 +299,109 @@ class AssetPrepareTask(Base):
 
     id: Mapped[uuid.UUID] = _id()
     avatar_id: Mapped[uuid.UUID] = _fk("avatars.id")
+    status: Mapped[str] = mapped_column(Text, server_default=text("'queued'"))
+    attempt: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    lease_until: Mapped[datetime | None]
+    lease_generation: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    current_attempt_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    worker_id: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+
+
+class BrandIdentity(Base):
+    """Identidade visual única do cliente; a aula copia os valores vigentes na criação."""
+
+    __tablename__ = "brand_identity"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="single_row"),
+        CheckConstraint(f"background_color {HEX_COLOR_CHECK}", name="background_color"),
+        CheckConstraint(f"accent_color {HEX_COLOR_CHECK}", name="accent_color"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    logo_file_id: Mapped[uuid.UUID] = _fk("stored_files.id")
+    background_color: Mapped[str] = mapped_column(Text)
+    accent_color: Mapped[str] = mapped_column(Text)
+    music_file_id: Mapped[uuid.UUID | None] = _fk("stored_files.id", nullable=True)
+    updated_by_user_id: Mapped[uuid.UUID] = _fk("users.id")
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Lesson(Base):
+    __tablename__ = "lessons"
+    __table_args__ = (
+        CheckConstraint(_in("aspect_ratio", ASPECT_RATIOS), name="aspect_ratio"),
+        CheckConstraint(_in("status", LESSON_STATUSES), name="status"),
+        CheckConstraint("char_length(idempotency_key) <= 128", name="idempotency_key_length"),
+        CheckConstraint(f"background_color {HEX_COLOR_CHECK}", name="background_color"),
+        CheckConstraint(f"accent_color {HEX_COLOR_CHECK}", name="accent_color"),
+        CheckConstraint("status <> 'ready' OR result_file_id IS NOT NULL", name="ready_has_file"),
+        Index(
+            "uq_lessons_idempotency_user",
+            "requested_by_user_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_lessons_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    requested_by_user_id: Mapped[uuid.UUID] = _fk("users.id")
+    idempotency_key: Mapped[str | None] = mapped_column(Text)
+    request_hash: Mapped[str | None] = mapped_column(Text)
+    avatar_id: Mapped[uuid.UUID] = _fk("avatars.id")
+    scene_id: Mapped[uuid.UUID] = _fk("scenes.id")
+    aspect_ratio: Mapped[str] = mapped_column(Text)
+    music_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # Identidade congelada na criação: montagem e retry usam sempre os mesmos insumos.
+    logo_file_id: Mapped[uuid.UUID] = _fk("stored_files.id")
+    background_color: Mapped[str] = mapped_column(Text)
+    accent_color: Mapped[str] = mapped_column(Text)
+    music_file_id: Mapped[uuid.UUID | None] = _fk("stored_files.id", nullable=True)
+    status: Mapped[str] = mapped_column(Text, server_default=text("'queued'"))
+    result_file_id: Mapped[uuid.UUID | None] = _fk("stored_files.id", nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+    finished_at: Mapped[datetime | None]
+
+
+class LessonScene(Base):
+    __tablename__ = "lesson_scenes"
+    __table_args__ = (
+        CheckConstraint(f"position BETWEEN 1 AND {MAX_LESSON_SCENES}", name="position"),
+        CheckConstraint(_in("shot", SHOTS), name="shot"),
+        UniqueConstraint("lesson_id", "position"),
+        UniqueConstraint("video_job_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    lesson_id: Mapped[uuid.UUID] = _fk("lessons.id")
+    position: Mapped[int] = mapped_column(Integer)
+    script_text: Mapped[str] = mapped_column(Text)
+    shot: Mapped[str] = mapped_column(Text)
+    topics: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    image_file_id: Mapped[uuid.UUID | None] = _fk("stored_files.id", nullable=True)
+    video_job_id: Mapped[uuid.UUID] = _fk("video_jobs.id")
+
+
+class LessonAssembleTask(Base):
+    __tablename__ = "lesson_assemble_tasks"
+    __table_args__ = (
+        CheckConstraint(_in("status", QUEUE_STATUSES), name="status"),
+        CheckConstraint("attempt >= 0", name="attempt"),
+        CheckConstraint("lease_generation >= 0", name="lease_generation"),
+        UniqueConstraint("lesson_id"),
+        Index("ix_lesson_assemble_tasks_status_created_at", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    lesson_id: Mapped[uuid.UUID] = _fk("lessons.id")
     status: Mapped[str] = mapped_column(Text, server_default=text("'queued'"))
     attempt: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     lease_until: Mapped[datetime | None]
