@@ -5,7 +5,7 @@ services:
     build:
       target: supervisor-cpu
     environment:
-      WORKER_KINDS: ${WORKER_KINDS:-asset_prepare}
+      WORKER_KINDS: ${WORKER_KINDS:-asset_prepare,lesson_assemble}
     deploy: !reset {}
 
   caddy:
