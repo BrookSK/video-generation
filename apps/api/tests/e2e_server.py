@@ -1,6 +1,7 @@
 """Servidor de aceitação local. Controles /__test existem só neste processo de teste.
 
-PostgreSQL, migrações, autenticação, armazenamento e protocolo worker são reais.
+PostgreSQL, migrações, autenticação, armazenamento e protocolo worker são reais. O supervisor
+CPU real roda com WORKER_KINDS=lesson_assemble e monta as aulas com FFmpeg.
 Mídia FFmpeg e catálogo sintético NÃO comprovam inferência, GPU nem qualidade humana.
 Execute: uv run --directory apps/api python tests/e2e_server.py
 """
@@ -8,6 +9,7 @@ Execute: uv run --directory apps/api python tests/e2e_server.py
 import hashlib
 import io
 import json
+import os
 import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -17,7 +19,7 @@ from tempfile import TemporaryDirectory
 import httpx
 import uvicorn
 from conftest import migrate
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from PIL import Image
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -28,12 +30,35 @@ from avatar_api.config import Settings
 from avatar_api.db import get_engine
 from avatar_api.devseed import seed_dev_catalog
 from avatar_api.main import create_app
-from avatar_api.models import Avatar, RenderRecipe, Scene, WorkerHeartbeat
+from avatar_api.models import Avatar, RenderRecipe, Scene, VideoJob, WorkerHeartbeat
 from avatar_api.storage import save_stream
 
 USERNAME = "e2e@local.test"
 PASSWORD = "isolated-e2e-password"
 WORKER_TOKEN = "isolated-e2e-worker"
+WORKER_DIR = Path(__file__).resolve().parents[2] / "worker"
+# Dublê de TTS e render: cena de aula com 2 s e cor ligada à posição, para conferir a ordem.
+SCENE_COLORS = ["0xDC2828", "0x28C83C", "0x283CDC", "0xE0C020", "0xC020C0", "0x20C0C0"]
+AVULSO_COLOR = "0xCFE0D6"
+
+
+def scene_color(position: int) -> str:
+    return SCENE_COLORS[(position - 1) % len(SCENE_COLORS)]
+
+
+def start_lesson_supervisor() -> subprocess.Popen:
+    """Supervisor CPU real, só com montagem de aula; sem GPU, Verda ou servidor do cliente."""
+    env = {
+        **os.environ,
+        "API_URL": "http://127.0.0.1:8000",
+        "WORKER_TOKEN": WORKER_TOKEN,
+        "WORKER_KINDS": "lesson_assemble",
+        "WORKER_ID": "e2e-cpu",
+        "POLL_SECONDS": "1",
+        "CUDA_VISIBLE_DEVICES": "",
+    }
+    command = ["uv", "run", "--directory", str(WORKER_DIR), "python", "-m"]
+    return subprocess.Popen([*command, "avatar_worker.supervisor"], env=env)
 
 
 def run():
@@ -90,6 +115,15 @@ def run():
             @app.get("/__test/config")
             def config():
                 return {"username": USERNAME, "password": PASSWORD, "api_key": api_key}
+
+            @app.get("/__test/logo.png")
+            def logo():
+                # Logo sintético: retângulo branco em fundo transparente.
+                image = Image.new("RGBA", (300, 120), (0, 0, 0, 0))
+                image.paste((255, 255, 255, 255), (20, 20, 280, 100))
+                buffer = io.BytesIO()
+                image.save(buffer, format="PNG")
+                return Response(buffer.getvalue(), media_type="image/png")
 
             @app.post("/__test/presence")
             def presence():
@@ -155,6 +189,10 @@ def run():
                         raise HTTPException(404, "Unknown test action")
                     ratio = claimed["payload"]["aspect_ratio"]
                     size = "1080x1920" if ratio == "9:16" else "1920x1080"
+                    with Session(engine) as db:
+                        position = db.get(VideoJob, job_id).lesson_position
+                    color = AVULSO_COLOR if position is None else scene_color(position)
+                    seconds = "1" if position is None else "2"
                     video = data_dir / f"{job_id}.mp4"
                     subprocess.run(
                         [
@@ -164,13 +202,13 @@ def run():
                             "-f",
                             "lavfi",
                             "-i",
-                            f"color=c=0xCFE0D6:s={size}:r=25",
+                            f"color=c={color}:s={size}:r=25",
                             "-f",
                             "lavfi",
                             "-i",
                             "sine=frequency=440:sample_rate=48000",
                             "-t",
-                            "1",
+                            seconds,
                             "-c:v",
                             "libx264",
                             "-preset",
@@ -190,7 +228,9 @@ def run():
                     for name, content in [
                         (
                             "manifest.json",
-                            json.dumps({"audio_seconds": 1.0, "test_only": True}).encode(),
+                            json.dumps(
+                                {"audio_seconds": float(seconds), "test_only": True}
+                            ).encode(),
                         ),
                         ("final.mp4", video.read_bytes()),
                     ]:
@@ -211,9 +251,15 @@ def run():
                     response.raise_for_status()
                     return response.json()
 
+            supervisor = start_lesson_supervisor()
             try:
                 uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
             finally:
+                supervisor.terminate()
+                try:
+                    supervisor.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    supervisor.kill()
                 engine.dispose()
 
 
