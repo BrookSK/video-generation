@@ -209,5 +209,6 @@ a sincronia labial e o áudio "picado", com cortes secos. A v2 corrige a montage
 (sincronia pelo vídeo, palavras inteiras, fades e fundo contínuo). Continua igual o
 que vem do TTS: algumas palavras terminam cortadas na própria tomada, e cada cena
 foi sintetizada separadamente, então altura e energia recomeçam a cada cena.
-Pendente: retorno do cliente sobre a v2.
+O usuário assistiu à v2 em 21/10 e liberou o envio ao cliente. Pendente: retorno
+do cliente sobre a v2.
 Retakes com seed diferente dependem da reconstrução autorizada da imagem do worker.
