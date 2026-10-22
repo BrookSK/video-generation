@@ -1,0 +1,6 @@
+# Só para a jornada @M002-03 (apps/web/playwright.prod.config.ts). Nunca use na instalação.
+# Publica a API em loopback para o dublê do gerador, que faz o papel da VPS GPU pelo túnel.
+services:
+  api:
+    ports:
+      - "127.0.0.1:${E2E_API_PORT:-18000}:8000"

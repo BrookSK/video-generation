@@ -2,6 +2,8 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/prod roda só com playwright.prod.config.ts, sobre o Compose de produção.
+  testIgnore: "prod/**",
   outputDir: "../../.bianchini/.runtime/playwright",
   timeout: 60000,
   fullyParallel: false,
