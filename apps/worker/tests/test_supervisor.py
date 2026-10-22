@@ -597,3 +597,160 @@ def test_video_lease_loss_cancels_final_probe_group_before_publication(
         check=True,
         timeout=3,
     )
+
+
+# --- montagem de aula (lesson_assemble) -------------------------------------------------
+
+LOGO_ID = "44444444-4444-4444-4444-444444444444"
+LESSON_ID = "55555555-5555-5555-5555-555555555555"
+SCENE_COLORS = {1: "0xD02828", 2: "0x28C83C"}
+
+
+def _scene_mp4(path, color, size="1920x1080", seconds=0.6):
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error", "-y",
+            "-f", "lavfi", "-i", f"color=c={color}:s={size}:r=25:d={seconds}",
+            "-f", "lavfi", "-i", f"sine=frequency=330:sample_rate=48000:duration={seconds}",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-ar", "48000", str(path),
+        ],
+        check=True,
+    )  # fmt: skip
+    return path.read_bytes()
+
+
+class LessonApi(FakeApi):
+    """API interna falsa da montagem: entrega cenas e logo e guarda o que foi publicado."""
+
+    def __init__(self, files, **kwargs):
+        super().__init__(**kwargs)
+        self.files = files
+        self.payload = {
+            "lesson_id": LESSON_ID,
+            "aspect_ratio": "16:9",
+            "logo_file_id": LOGO_ID,
+            "background_color": "#0B2545",
+            "accent_color": "#F2A541",
+            "scenes": [
+                {"position": position, "shot": shot, "file_id": f"scene-{position}"}
+                for position, shot in ((1, "medio"), (2, "close"))
+            ],
+        }
+
+    def claim_body(self):
+        return {**super().claim_body(), "kind": "lesson_assemble", "payload": self.payload}
+
+    def __call__(self, request):
+        assert request.url.host == "api", "Conexão fora da API interna"
+        path = request.url.path
+        if path.startswith("/internal/v1/files/"):
+            with self.lock:
+                self.calls.append((request.method, path))
+            return httpx.Response(200, content=self.files[path.rsplit("/", 1)[1]])
+        return super().__call__(request)
+
+
+def _lesson_supervisor(api, assemble=None):
+    config = load_config(
+        {"API_URL": "http://api", "WORKER_TOKEN": TOKEN, "WORKER_KINDS": "lesson_assemble"}
+    )
+    client = httpx.Client(
+        base_url="http://api",
+        transport=httpx.MockTransport(api),
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        trust_env=False,
+    )
+    kwargs = {"assemble": assemble} if assemble else {}
+    return Supervisor(config, client, wait=lambda seconds, interrupt: None, **kwargs)
+
+
+@pytest.fixture
+def lesson_files(tmp_path):
+    files = {
+        f"scene-{position}": _scene_mp4(tmp_path / f"scene-{position}.mp4", color)
+        for position, color in SCENE_COLORS.items()
+    }
+    files[LOGO_ID] = _png(Image.new("RGB", (200, 80), (255, 255, 255)))
+    return files
+
+
+def test_kinds_misturando_video_e_montagem_saem_com_codigo_2(capsys):
+    env = {"WORKER_TOKEN": "t", "WORKER_KINDS": "video,lesson_assemble"}
+
+    assert main(env) == 2
+    assert "lesson_assemble" in capsys.readouterr().err
+    assert load_config({"WORKER_TOKEN": "t", "WORKER_KINDS": "asset_prepare,lesson_assemble"})
+
+
+def test_montagem_do_claim_ao_complete(lesson_files, tmp_path):
+    api = LessonApi(lesson_files)
+
+    assert _lesson_supervisor(api).process_next() is True
+
+    assert api.failed is None
+    paths = [path for _, path in api.calls]
+    assert paths[0] == "/internal/v1/claim"
+    assert "/internal/v1/files/scene-1" in paths and f"/internal/v1/files/{LOGO_ID}" in paths
+    base = f"/internal/v1/lesson-tasks/{TASK_ID}"
+    assert paths[-1] == f"{base}/complete"
+    assert set(api.uploads) == {"manifest.json", "final.mp4"}
+    completed = json.loads(api.completed)
+    assert completed == {
+        "attempt_id": ATTEMPT_ID,
+        "lease_generation": 3,
+        "result_file_id": "id-final.mp4",
+    }
+    final = tmp_path / "aula.mp4"
+    final.write_bytes(api.uploads["final.mp4"]["file"])
+    profile = json.loads(
+        subprocess.run(
+            ["ffprobe", "-v", "error", "-show_format", "-of", "json", str(final)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
+    assert abs(float(profile["format"]["duration"]) - 7.2) < 0.2
+    manifest = json.loads(api.uploads["manifest.json"]["file"])
+    assert manifest["attempt_directory"] == f"lessons/{LESSON_ID}/{ATTEMPT_ID}"
+    assert [scene["shot"] for scene in manifest["scenes"]] == ["medio", "close"]
+
+
+def test_stale_attempt_no_meio_nao_envia_nem_conclui(lesson_files):
+    api = LessonApi(lesson_files, heartbeat_status=409)
+
+    def assemble(payload, scenes, logo, work, check):
+        assert api.heartbeat_seen.wait(5)
+        time.sleep(0.05)
+        check()
+        raise AssertionError("a montagem não pode seguir com a tentativa perdida")
+
+    _lesson_supervisor(api, assemble).process_next()
+
+    assert api.uploads == {} and api.completed is None and api.failed is None
+
+
+def test_cena_de_formato_errado_falha_com_output_invalid_sem_retry(lesson_files, tmp_path):
+    lesson_files["scene-2"] = _scene_mp4(tmp_path / "vertical.mp4", "0x000000", "1080x1920")
+    api = LessonApi(lesson_files)
+
+    _lesson_supervisor(api).process_next()
+
+    assert api.completed is None and api.uploads == {}
+    assert api.failed["error_code"] == "OUTPUT_INVALID"
+    assert api.failed["retryable"] is False
+    assert "cena 2" in api.failed["error_message"]
+
+
+def test_erro_inesperado_na_montagem_vira_transient_com_retry(lesson_files):
+    api = LessonApi(lesson_files)
+
+    def assemble(*_):
+        raise RuntimeError("falha interna com detalhe que não pode vazar")
+
+    _lesson_supervisor(api, assemble).process_next()
+
+    assert api.failed["error_code"] == "TRANSIENT"
+    assert api.failed["retryable"] is True
+    assert "detalhe" not in api.failed["error_message"]

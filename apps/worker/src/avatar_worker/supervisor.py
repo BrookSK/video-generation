@@ -1,13 +1,14 @@
-"""Supervisor: reivindica vídeo/preparação, mantém lease e publica na API interna.
+"""Supervisor: reivindica vídeo/preparação/montagem, mantém lease e publica na API interna.
 
 Uso: python -m avatar_worker.supervisor
 
 Lê API_URL (padrão http://api:8000), WORKER_TOKEN (obrigatório), WORKER_ID (padrão o
-hostname), WORKER_KINDS (padrão asset_prepare) e POLL_SECONDS (padrão 3). Cada tarefa tem
-heartbeat numa thread própria; STALE_ATTEMPT ou lease vencido marcam a tentativa como
-perdida, e dali em diante nada é enviado nem publicado. Erro de rede repete com backoff de
-1 a 30 s. SIGTERM encerra depois do item atual. Os logs trazem só task_id, etapa e código,
-além da linha de início com o worker_id e os tipos reivindicados.
+hostname), WORKER_KINDS (padrão asset_prepare) e POLL_SECONDS (padrão 3). A montagem de
+aula (lesson_assemble) é só do supervisor CPU: WORKER_KINDS com video junto é recusado.
+Cada tarefa tem heartbeat numa thread própria; STALE_ATTEMPT ou lease vencido marcam a
+tentativa como perdida, e dali em diante nada é enviado nem publicado. Erro de rede repete
+com backoff de 1 a 30 s. SIGTERM encerra depois do item atual. Os logs trazem só task_id,
+etapa e código, além da linha de início com o worker_id e os tipos reivindicados.
 """
 
 import hashlib
@@ -30,11 +31,14 @@ import httpx
 
 from avatar_worker.asset_prepare import PrepareInputError, prepare_avatar
 from avatar_worker.cutout import CutoutError
+from avatar_worker.lesson import LessonResult, assemble_lesson
 from avatar_worker.video import GenerationFailure, VideoRuntime, file_sha256, generate_video
 
 logger = logging.getLogger("avatar_worker.supervisor")
 
-SUPPORTED_KINDS = ("video", "asset_prepare")
+SUPPORTED_KINDS = ("video", "asset_prepare", "lesson_assemble")
+# Tipo de item -> caminho da fila na API interna.
+QUEUE_PATHS = {"video": "jobs", "asset_prepare": "asset-tasks", "lesson_assemble": "lesson-tasks"}
 # Arquivo da tentativa -> campo do complete da preparação.
 RESULT_FIELDS = {
     "prepared.png": "prepared_file_id",
@@ -47,6 +51,7 @@ RETRY_STATUS = frozenset({502, 503, 504})
 REQUEST_TIMEOUT_S = 60.0
 CUTOUT_UNAVAILABLE_MESSAGE = "O recorte automático não está disponível no worker."
 PREPARE_ERROR_MESSAGE = "Falha inesperada ao preparar o avatar."
+ASSEMBLE_ERROR_MESSAGE = "Falha temporária na montagem da aula."
 
 Wait = Callable[[float, threading.Event], Any]
 Now = Callable[[], datetime]
@@ -88,6 +93,11 @@ def load_config(env: Mapping[str, str]) -> Config:
     kinds = tuple(kind.strip() for kind in raw_kinds.split(",") if kind.strip())
     if not kinds or set(kinds) - set(SUPPORTED_KINDS):
         raise ConfigError(f"WORKER_KINDS aceita só: {', '.join(SUPPORTED_KINDS)}.")
+    if {"video", "lesson_assemble"} <= set(kinds):
+        raise ConfigError(
+            "WORKER_KINDS não aceita video junto de lesson_assemble: "
+            "a montagem de aula roda só no supervisor CPU."
+        )
     try:
         poll_seconds = float(env.get("POLL_SECONDS", "3"))
     except ValueError as exc:
@@ -137,8 +147,7 @@ class Task:
 
     @property
     def base_path(self) -> str:
-        queue = "jobs" if self.kind == "video" else "asset-tasks"
-        return f"/internal/v1/{queue}/{self.id}"
+        return f"/internal/v1/{QUEUE_PATHS[self.kind]}/{self.id}"
 
     @property
     def ref(self) -> dict[str, Any]:
@@ -217,10 +226,12 @@ class Supervisor:
         prepare: Callable[[bytes], Mapping[str, bytes]] = prepare_avatar,
         wait: Wait | None = None,
         now: Now | None = None,
+        assemble: Callable[..., LessonResult] = assemble_lesson,
     ) -> None:
         self._config = config
         self._client = client
         self._prepare = prepare
+        self._assemble = assemble
         self._wait = wait or (lambda seconds, interrupt: interrupt.wait(seconds))
         self._now = now or (lambda: datetime.now(UTC))
         self._stop = threading.Event()
@@ -253,6 +264,8 @@ class Supervisor:
             try:
                 if task.kind == "video":
                     self._handle_video(task, heartbeat)
+                elif task.kind == "lesson_assemble":
+                    self._handle_lesson(task, heartbeat)
                 else:
                     self._handle(task, heartbeat)
             except StaleAttempt:
@@ -327,8 +340,62 @@ class Supervisor:
         else:
             _log(logging.INFO, task.id, "complete", "OK")
 
+    def _handle_lesson(self, task: Task, heartbeat: Heartbeat) -> None:
+        """Baixa cenas e logo, monta a aula em diretório temporário, envia e conclui."""
+        missing = "Um arquivo da aula (cena ou logo) não está disponível."
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix=f"avatar-lesson-{task.attempt_id}-"
+            ) as temporary:
+                work = Path(temporary)
+                scenes = {}
+                for scene in task.payload["scenes"]:
+                    path = work / f"scene-{scene['position']}.mp4"
+                    self._download_path(task, heartbeat, scene["file_id"], path, missing)
+                    scenes[scene["position"]] = path
+                logo = work / "logo"
+                self._download_path(task, heartbeat, task.payload["logo_file_id"], logo, missing)
+                _log(logging.INFO, task.id, "download", "OK")
+                result = self._assemble(task.payload, scenes, logo, work / "out", heartbeat.check)
+                heartbeat.check()
+                manifest = json.loads(result.files["manifest.json"].read_text())
+                manifest.update(
+                    task_id=task.id,
+                    attempt_id=task.attempt_id,
+                    lease_generation=task.lease_generation,
+                    attempt_directory=f"lessons/{task.payload['lesson_id']}/{task.attempt_id}",
+                )
+                result.files["manifest.json"].write_text(
+                    json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                )
+                file_ids = {
+                    name: self._upload_path(task, heartbeat, result.files[name])
+                    for name in ("manifest.json", "final.mp4")
+                }
+                response = self._call(
+                    "POST",
+                    f"{task.base_path}/complete",
+                    heartbeat,
+                    json={**task.ref, "result_file_id": file_ids["final.mp4"]},
+                )
+                if not response.is_success:
+                    raise GenerationFailure("OUTPUT_INVALID", "A publicação da aula foi recusada.")
+        except StaleAttempt:
+            raise
+        except GenerationFailure as exc:
+            self._fail(task, heartbeat, exc.code, exc.message, exc.retryable)
+        except Exception:
+            self._fail(task, heartbeat, "TRANSIENT", ASSEMBLE_ERROR_MESSAGE, True)
+        else:
+            _log(logging.INFO, task.id, "complete", "OK")
+
     def _download_path(
-        self, task: Task, heartbeat: Heartbeat, file_id: str, destination: Path
+        self,
+        task: Task,
+        heartbeat: Heartbeat,
+        file_id: str,
+        destination: Path,
+        missing: str = "O arquivo do avatar ou cenário não está disponível.",
     ) -> None:
         delay = BACKOFF_MIN_S
         while True:
@@ -343,9 +410,7 @@ class Supervisor:
                         if response.status_code == 409 and _error_code(response) == "STALE_ATTEMPT":
                             heartbeat.mark_lost()
                             raise StaleAttempt
-                        raise GenerationFailure(
-                            "INPUT_INVALID", "O arquivo do avatar ou cenário não está disponível."
-                        )
+                        raise GenerationFailure("INPUT_INVALID", missing)
                     else:
                         with destination.open("wb") as target:
                             for block in response.iter_bytes(chunk_size=1 << 20):
