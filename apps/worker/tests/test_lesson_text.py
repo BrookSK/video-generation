@@ -81,7 +81,7 @@ def test_legenda_usa_as_cores_da_identidade(aspect):
     assert y + image.height == LAYOUTS[aspect].subtitle_bottom
     assert near(image.getpixel((image.width // 2, 1)), (*rgb(ACCENT), 255))
     assert near(image.getpixel((8, image.height // 2)), (*rgb(BACKGROUND), 225))
-    colors = {pixel[:3] for pixel in image.getdata() if pixel[3] == 255}
+    colors = {pixel[:3] for pixel in image.get_flattened_data() if pixel[3] == 255}
     assert text_color(BACKGROUND) == (255, 255, 255)
     assert (255, 255, 255) in colors
 
@@ -92,7 +92,7 @@ def test_texto_escuro_sobre_fundo_claro():
     image, _, _ = draw_subtitle(chunk, "16:9", "#F1F2F7", ACCENT)
 
     assert text_color("#F1F2F7") == (17, 17, 17)
-    assert (17, 17, 17) in {pixel[:3] for pixel in image.getdata() if pixel[3] == 255}
+    assert (17, 17, 17) in {pixel[:3] for pixel in image.get_flattened_data() if pixel[3] == 255}
 
 
 @pytest.mark.parametrize(
@@ -116,7 +116,7 @@ def test_topicos_na_area_do_formato_com_marcador_de_destaque(aspect, with_image)
     else:
         assert y + image.height == bottom
     assert near(image.getpixel((6, image.height // 2)), (*rgb(BACKGROUND), 225))
-    accent = sum(1 for pixel in image.getdata() if near(pixel, (*rgb(ACCENT), 255)))
+    accent = sum(1 for pixel in image.get_flattened_data() if near(pixel, (*rgb(ACCENT), 255)))
     assert accent > 3 * 10  # um marcador por tópico
 
 
