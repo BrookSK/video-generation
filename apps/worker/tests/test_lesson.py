@@ -1,6 +1,7 @@
 """Montagem da aula com FFmpeg real: cenas sintéticas de cores distintas, nada de GPU."""
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -263,3 +264,107 @@ def test_imagem_ilegivel_falha_com_input_invalid(tmp_path, logo):
 
     assert exc_info.value.code == "INPUT_INVALID"
     assert "cena 2" in exc_info.value.message
+
+
+# --- trilha com ducking --------------------------------------------------------------------
+
+# Fala: tom de 300 Hz; pausa: silêncio. A trilha sintética é um tom de 4 kHz, medido com
+# passa-altas em cascata, que tira a fala da medida.
+VOICE = [("fala", 1.2), ("pausa", 1.8), ("fala", 1.2)]
+HIGH_BAND = ",".join(["highpass=f=2500"] * 3)
+
+
+def voice_scene(path: Path, rgb_color: tuple[int, int, int], size: str = "1920x1080") -> Path:
+    seconds = sum(length for _, length in VOICE)
+    parts = [
+        f"sine=frequency=300:sample_rate=48000:duration={length}"
+        if kind == "fala"
+        else f"anullsrc=r=48000:cl=mono,atrim=0:{length}"
+        for kind, length in VOICE
+    ]
+    inputs = [arg for part in parts for arg in ("-f", "lavfi", "-i", part)]
+    graph = "".join(f"[{i + 1}:a]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=0:a=1[a]"
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error", "-y",
+            "-f", "lavfi", "-i", f"color=c={_hex(rgb_color)}:s={size}:r=25:d={seconds}",
+            *inputs, "-filter_complex", graph, "-map", "0:v", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-ar", "48000", str(path),
+        ],
+        check=True,
+    )  # fmt: skip
+    return path
+
+
+def music_wav(path: Path) -> Path:
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi",
+            "-i", "sine=frequency=4000:sample_rate=44100:duration=1.5", "-ac", "2", str(path),
+        ],
+        check=True,
+    )  # fmt: skip
+    return path
+
+
+def band_level(video: Path, start: float, seconds: float) -> float:
+    """Nível RMS em dB da faixa da trilha no trecho [start, start + seconds]."""
+    result = subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-hide_banner", "-ss", f"{start:.3f}", "-t", f"{seconds:.3f}",
+            "-i", str(video), "-af", f"{HIGH_BAND},astats=measure_perchannel=none",
+            "-f", "null", "-",
+        ],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    value = re.search(r"RMS level dB: (\S+)", result.stderr).group(1)
+    return float("-inf") if value == "-inf" else float(value)
+
+
+def music_lesson(tmp_path: Path, logo: Path, music: Path | None):
+    scenes = {
+        1: voice_scene(tmp_path / "cena-1.mp4", (200, 40, 40)),
+        2: voice_scene(tmp_path / "cena-2.mp4", (40, 40, 200)),
+    }
+    data = payload()
+    data["scenes"] = [{"position": p, "shot": "medio", "file_id": f"cena-{p}"} for p in (1, 2)]
+    return assemble_lesson(data, scenes, logo, tmp_path / "work", lambda: None, music=music)
+
+
+def test_trilha_fica_mais_baixa_na_fala_do_que_nas_pausas(tmp_path, logo):
+    result = music_lesson(tmp_path, logo, music_wav(tmp_path / "trilha.wav"))
+
+    final = result.files["final.mp4"]
+    # Cena 1 começa em 3 s: fala de 3,0 a 4,2, pausa de 4,2 a 6,0, fala de 6,0 a 7,2.
+    opening = band_level(final, 1.5, 1.2)
+    pause = band_level(final, 5.2, 0.7)
+    speech = [band_level(final, 3.4, 0.7), band_level(final, 6.4, 0.7)]
+    assert opening > -40 and pause > -40
+    assert all(level < pause - 6 for level in speech), (opening, pause, speech)
+    # Saída suave: no fim do encerramento a trilha já está bem mais baixa.
+    total = result.duration
+    assert band_level(final, total - 0.4, 0.3) < opening - 12
+    manifest = json.loads(result.files["manifest.json"].read_text())
+    assert manifest["music_sha256"] is not None
+
+
+def test_aula_sem_trilha_nao_tem_trilha(tmp_path, logo):
+    result = music_lesson(tmp_path, logo, None)
+
+    final = result.files["final.mp4"]
+    assert band_level(final, 1.5, 1.2) < -70
+    assert band_level(final, 5.2, 0.7) < -70
+    assert json.loads(result.files["manifest.json"].read_text())["music_sha256"] is None
+
+
+def test_trilha_ilegivel_falha_com_mensagem_em_portugues(tmp_path, logo):
+    broken = tmp_path / "trilha.mp3"
+    broken.write_bytes(b"ID3 isto nao e audio")
+
+    with pytest.raises(GenerationFailure) as exc_info:
+        music_lesson(tmp_path, logo, broken)
+
+    assert exc_info.value.code == "INPUT_INVALID"
+    assert exc_info.value.message.startswith("A trilha de fundo da aula não pôde ser lida")
+    assert not (tmp_path / "work" / "final.mp4").exists()
