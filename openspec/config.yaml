@@ -1,0 +1,51 @@
+schema: spec-driven
+
+context: |
+  Language: pt-BR
+  All artifacts must be written in pt-BR.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Projeto: plataforma de vídeo com avatar falante para a ON Solutions (cliente Lucas Narciso).
+  O primeiro contrato (M001, R$ 2.000) foi encerrado em 22/10/2026: painel, API, cadastro de
+  avatares e cenários, voz Qwen3-TTS e vídeo InfiniteTalk na GPU, finalização com FFmpeg.
+  Ciclo atual: montagem institucional das aulas (M002), R$ 650, aprovada pelo cliente em 22/10/2026.
+  Metade paga em 22/10, restante na entrega. Entrega prevista na semana de 26/10/2026.
+  Registro do pedido: docs/homologacao/FORA_DO_ESCOPO.md.
+  Changes numeradas 01 a 04. Aplicar e arquivar em ordem.
+
+  Stack: API FastAPI + SQLAlchemy + Alembic + PostgreSQL (apps/api), painel React 19 + Vite +
+  TypeScript com Vitest e Playwright (apps/web), worker e supervisor CPU em Python (apps/worker),
+  Docker Compose em infra/. Ferramentas por mise (Python 3.13/3.12, uv, Node 24). npm no painel.
+
+  Regras inegociáveis:
+  - A fala é sempre o texto literal informado. A legenda mostra esse mesmo texto, sem trocar,
+    cortar ou acrescentar palavras. Reconhecimento de fala nunca substitui o texto.
+  - A montagem roda só no supervisor CPU. Nunca usa GPU e nunca gera custo na Verda.
+  - A receita de inferência (TTS e render) não muda neste ciclo.
+  - A API pública /api/v1 e o fluxo de vídeo avulso continuam iguais.
+  - Logo, cores, trilha e imagens vêm da equipe do cliente. O sistema não fornece trilha nem banco de imagens.
+  - Nada é instalado no ambiente do cliente neste ciclo. A instalação segue pendente do M001.
+  - Nenhum segredo, token ou material privado do cliente no repositório.
+
+rules:
+  proposal:
+    - Declarar o que fica fora de escopo, incluindo narração contínua em GPU, produção da série de aulas e instalação no cliente.
+  specs:
+    - Cada requisito tem ao menos um Scenario verificável.
+  design:
+    - Registrar o que depende do cliente (logo, cores, trilha, imagens).
+  tasks:
+    - Toda tarefa informa como verificar a conclusão.
+    - Cada grupo entrega os próprios testes.
+
+operations:
+  apply:
+    guidance:
+      - Antes de começar, rodar os testes de apps/api, apps/worker (-m "not gpu") e apps/web para partir de um estado verde.
+      - Testes de API usam PostgreSQL real, como os testes existentes.
+      - Inferência só tem dublê nas fronteiras de TTS e render. A montagem roda com FFmpeg real nos testes.
+      - Fazer commits pequenos e atômicos, um por unidade lógica, na branch dev/m002-montagem.
+      - Nunca usar GPU, Verda ou o servidor do cliente.
+  archive:
+    guidance:
+      - Arquivar somente com todas as tarefas marcadas e a verificação do grupo final executada.
