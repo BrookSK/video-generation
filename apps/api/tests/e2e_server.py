@@ -30,14 +30,25 @@ from avatar_api.config import Settings
 from avatar_api.db import get_engine
 from avatar_api.devseed import seed_dev_catalog
 from avatar_api.main import create_app
-from avatar_api.models import Avatar, RenderRecipe, Scene, VideoJob, WorkerHeartbeat
+from avatar_api.models import (
+    Avatar,
+    Lesson,
+    RenderRecipe,
+    Scene,
+    StoredFile,
+    VideoJob,
+    WorkerHeartbeat,
+)
 from avatar_api.storage import save_stream
 
 USERNAME = "e2e@local.test"
 PASSWORD = "isolated-e2e-password"
 WORKER_TOKEN = "isolated-e2e-worker"
 WORKER_DIR = Path(__file__).resolve().parents[2] / "worker"
-# Dublê de TTS e render: cena de aula com 2 s e cor ligada à posição, para conferir a ordem.
+# Dublê de TTS e render: cena de aula com 3 s e cor ligada à posição, para conferir a ordem.
+# A voz da cena é um tom de 300 Hz com fala de 0 a 1 s, pausa de 1 a 2 s e fala de 2 a 3 s.
+LESSON_SCENE_SECONDS = "3"
+LESSON_VOICE = "volume='if(between(t,1,2),0,1)':eval=frame"
 SCENE_COLORS = ["0xDC2828", "0x28C83C", "0x283CDC", "0xE0C020", "0xC020C0", "0x20C0C0"]
 AVULSO_COLOR = "0xCFE0D6"
 
@@ -125,6 +136,36 @@ def run():
                 image.save(buffer, format="PNG")
                 return Response(buffer.getvalue(), media_type="image/png")
 
+            @app.get("/__test/picture.png")
+            def picture():
+                # Imagem de cena sintética: magenta 4:3, fácil de achar no quadro.
+                buffer = io.BytesIO()
+                Image.new("RGB", (800, 600), (255, 0, 255)).save(buffer, format="PNG")
+                return Response(buffer.getvalue(), media_type="image/png")
+
+            @app.get("/__test/music.wav")
+            def music():
+                # Trilha sintética: tom de 4 kHz, longe da voz de 300 Hz, para medir o ducking.
+                wav = subprocess.run(
+                    [
+                        "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi",
+                        "-i", "sine=frequency=4000:sample_rate=44100:duration=2",
+                        "-ac", "2", "-f", "wav", "-",
+                    ],
+                    check=True, capture_output=True, timeout=60,
+                ).stdout  # fmt: skip
+                return Response(wav, media_type="audio/wav")
+
+            @app.get("/__test/lessons/{lesson_id}/manifest")
+            def lesson_manifest(lesson_id: uuid.UUID):
+                with Session(engine) as db:
+                    lesson = db.get(Lesson, lesson_id)
+                    if lesson is None or lesson.result_file_id is None:
+                        raise HTTPException(409, "Lesson not ready")
+                    final = db.get(StoredFile, lesson.result_file_id)
+                    manifest = Path(final.relative_path).with_name("manifest.json")
+                return json.loads((data_dir / manifest).read_text("utf-8"))
+
             @app.post("/__test/presence")
             def presence():
                 with Session(engine) as db:
@@ -192,7 +233,8 @@ def run():
                     with Session(engine) as db:
                         position = db.get(VideoJob, job_id).lesson_position
                     color = AVULSO_COLOR if position is None else scene_color(position)
-                    seconds = "1" if position is None else "2"
+                    seconds = "1" if position is None else LESSON_SCENE_SECONDS
+                    voice = "anull" if position is None else LESSON_VOICE
                     video = data_dir / f"{job_id}.mp4"
                     subprocess.run(
                         [
@@ -209,6 +251,8 @@ def run():
                             "sine=frequency=440:sample_rate=48000",
                             "-t",
                             seconds,
+                            "-af",
+                            voice,
                             "-c:v",
                             "libx264",
                             "-preset",
