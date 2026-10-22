@@ -6,7 +6,7 @@
 
 ## 2. Identidade e close no cadastro
 
-- [ ] 2.1 Implementar leitura e gravação da identidade em `assets.py` (logo PNG ou JPEG pelo validador de imagem existente, gravado como arquivo novo e imutável; cores `#RRGGBB`; autor e data) e as rotas `GET` e `PUT /panel/brand-identity` e `GET /panel/brand-identity/logo` com sessão e CSRF; `GET` sem cadastro devolve 200 com campos nulos; verificar com `tests/assets/test_brand_identity.py` (WebP ou SVG recusado com 422, cor inválida recusada, troca de logo preserva o arquivo anterior)
+- [x] 2.1 Implementar leitura e gravação da identidade em `assets.py` (logo PNG ou JPEG pelo validador de imagem existente, gravado como arquivo novo e imutável; cores `#RRGGBB`; autor e data) e as rotas `GET` e `PUT /panel/brand-identity` e `GET /panel/brand-identity/logo` com sessão e CSRF; `GET` sem cadastro devolve 200 com campos nulos; verificar com `tests/assets/test_brand_identity.py` (WebP ou SVG recusado com 422, cor inválida recusada, troca de logo preserva o arquivo anterior)
 - [ ] 2.2 Aceitar a chave opcional `close` com 9:16 e 16:9 em `parse_composition`, com as faixas próprias do close; verificar com `tests/assets/test_panel_scenes.py` (close válido salvo, close fora da faixa recusado com 422)
 - [ ] 2.3 Regerar `docs/api/openapi.json` pelo comando do `docs/api/GUIA.md`; verificar com `uv run --directory apps/api pytest tests/docs`
 

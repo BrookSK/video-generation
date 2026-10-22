@@ -1,6 +1,7 @@
-"""Avatares e cenários do painel: cadastro, listagem, arquivamento e arquivos.
+"""Avatares, cenários e identidade visual do painel: cadastro, listagem e arquivos.
 
 Arquivo de asset é imutável: não há edição; para trocar, a pessoa arquiva e cadastra outro.
+Na identidade, trocar o logo grava um arquivo novo e o anterior continua no volume.
 """
 
 import hashlib
@@ -13,11 +14,19 @@ from pathlib import Path
 from typing import Any, Literal
 
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from avatar_api.errors import ApiError
-from avatar_api.models import ASPECT_RATIOS, AssetPrepareTask, Avatar, Scene, StoredFile
+from avatar_api.models import (
+    ASPECT_RATIOS,
+    AssetPrepareTask,
+    Avatar,
+    BrandIdentity,
+    Scene,
+    StoredFile,
+)
 from avatar_api.storage import resolve_path, save_stream
 from avatar_api.uploads import ValidatedImage, render_previews
 
@@ -304,6 +313,92 @@ def scene_file(
     if file_id is None:
         raise ApiError(404, "NOT_FOUND", "O cenário não tem esse arquivo.")
     stored = session.get(StoredFile, file_id)
+    return resolve_path(data_dir, stored), stored
+
+
+# --- identidade visual ------------------------------------------------------------------
+
+BRAND_IDENTITY_ID = 1
+_LOGO_TYPES = frozenset({"image/png", "image/jpeg"})
+
+
+def _invalid_logo() -> ApiError:
+    return ApiError(422, "UNSUPPORTED_FILE_TYPE", "Envie o logo em PNG ou JPEG.", "logo")
+
+
+def _valid_color(value: str, field: str) -> str:
+    if not HEX_COLOR.fullmatch(value):
+        raise ApiError(422, "VALIDATION_ERROR", "Use uma cor no formato #RRGGBB.", field)
+    return value
+
+
+def get_brand_identity(session: Session) -> BrandIdentity | None:
+    return session.get(BrandIdentity, BRAND_IDENTITY_ID)
+
+
+def save_brand_identity(
+    session: Session,
+    data_dir: Path,
+    user_id: uuid.UUID,
+    background_color: str,
+    accent_color: str,
+    logo: ValidatedImage | None = None,
+) -> BrandIdentity:
+    """Grava as cores e, se vier, o logo novo; autor e data vão junto, num único commit.
+
+    Sem logo, só troca as cores da identidade já cadastrada; o primeiro cadastro exige o
+    logo. O logo novo vira um arquivo novo em brand/<id>/: o anterior continua no volume,
+    porque as aulas já criadas guardam o ID dele. Se qualquer passo falhar, nada fica.
+    """
+    colors = {
+        "background_color": _valid_color(background_color, "background_color"),
+        "accent_color": _valid_color(accent_color, "accent_color"),
+    }
+    if logo is not None and logo.content_type not in _LOGO_TYPES:
+        raise _invalid_logo()
+    changes = {**colors, "updated_by_user_id": user_id, "updated_at": func.now()}
+    try:
+        if logo is None:
+            updated = session.execute(
+                update(BrandIdentity)
+                .where(BrandIdentity.id == BRAND_IDENTITY_ID)
+                .values(**changes)
+            )
+            if updated.rowcount == 0:
+                raise ApiError(422, "VALIDATION_ERROR", "Envie o logo em PNG ou JPEG.", "logo")
+        else:
+            with logo.path.open("rb") as stream:
+                stored = save_stream(
+                    session,
+                    data_dir,
+                    f"brand/{uuid.uuid4()}",
+                    f"logo{logo.extension}",
+                    stream,
+                    logo.sha256,
+                    logo.content_type,
+                    commit=False,
+                )
+            changes["logo_file_id"] = stored.id
+            # Upsert da linha única: dois primeiros cadastros simultâneos não colidem.
+            session.execute(
+                insert(BrandIdentity)
+                .values(id=BRAND_IDENTITY_ID, **changes)
+                .on_conflict_do_update(index_elements=[BrandIdentity.id], set_=changes)
+            )
+        session.commit()
+    except BaseException:
+        session.rollback()
+        raise
+    identity = get_brand_identity(session)
+    session.refresh(identity)
+    return identity
+
+
+def brand_logo(session: Session, data_dir: Path) -> tuple[Path, StoredFile]:
+    identity = get_brand_identity(session)
+    if identity is None:
+        raise ApiError(404, "NOT_FOUND", "Nenhum logo cadastrado.")
+    stored = session.get(StoredFile, identity.logo_file_id)
     return resolve_path(data_dir, stored), stored
 
 

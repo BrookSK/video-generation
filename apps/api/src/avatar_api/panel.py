@@ -45,6 +45,7 @@ from avatar_api.models import (
     VOICES,
     ApiKey,
     Avatar,
+    BrandIdentity,
     RenderRecipe,
     Scene,
     StoredFile,
@@ -447,6 +448,74 @@ def scene_file(
     request: Request,
 ) -> FileResponse:
     path, stored = assets.scene_file(db, request.app.state.settings.data_dir, scene_id, kind)
+    return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
+
+
+# --- identidade visual ------------------------------------------------------------------
+
+
+class BrandIdentityOut(BaseModel):
+    """Sem cadastro, todos os campos vêm nulos."""
+
+    logo_url: str | None
+    background_color: str | None
+    accent_color: str | None
+    updated_at: datetime | None
+    updated_by: str | None
+
+
+def _brand_identity_out(db: Session, identity: BrandIdentity | None) -> BrandIdentityOut:
+    if identity is None:
+        return BrandIdentityOut(
+            logo_url=None,
+            background_color=None,
+            accent_color=None,
+            updated_at=None,
+            updated_by=None,
+        )
+    person = db.get(User, identity.updated_by_user_id)
+    return BrandIdentityOut(
+        # O ID do arquivo na URL faz o navegador buscar o logo novo depois de uma troca.
+        logo_url=f"/panel/brand-identity/logo?v={identity.logo_file_id}",
+        background_color=identity.background_color,
+        accent_color=identity.accent_color,
+        updated_at=identity.updated_at,
+        updated_by=person.display_name or person.username,
+    )
+
+
+@router.get("/brand-identity")
+def get_brand_identity(_: CurrentPanelSession, db: DbSession) -> BrandIdentityOut:
+    return _brand_identity_out(db, assets.get_brand_identity(db))
+
+
+@router.put("/brand-identity")
+def put_brand_identity(
+    background_color: Annotated[str, Form()],
+    accent_color: Annotated[str, Form()],
+    identity: CurrentPanelSession,
+    db: DbSession,
+    request: Request,
+    logo: Annotated[UploadFile | None, File()] = None,
+) -> BrandIdentityOut:
+    data_dir = request.app.state.settings.data_dir
+    if logo is None:
+        saved = assets.save_brand_identity(
+            db, data_dir, identity.user_id, background_color, accent_color
+        )
+        return _brand_identity_out(db, saved)
+    # O temporário da validação fica fora de DATA_DIR: recusa não deixa nada no volume.
+    with tempfile.TemporaryDirectory(prefix="logo-upload-") as tmp_dir:
+        image = validate_image(logo.file, "logo", Path(tmp_dir))
+        saved = assets.save_brand_identity(
+            db, data_dir, identity.user_id, background_color, accent_color, image
+        )
+    return _brand_identity_out(db, saved)
+
+
+@router.get("/brand-identity/logo")
+def brand_identity_logo(_: CurrentPanelSession, db: DbSession, request: Request) -> FileResponse:
+    path, stored = assets.brand_logo(db, request.app.state.settings.data_dir)
     return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
 
 
