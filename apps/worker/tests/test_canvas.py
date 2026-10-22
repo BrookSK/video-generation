@@ -5,7 +5,13 @@ import pytest
 from PIL import Image, ImageChops
 
 from avatar_worker import cutout
-from avatar_worker.canvas import bucket_frame, canvas_cut, compose_canvas, extend_to_bucket
+from avatar_worker.canvas import (
+    bucket_frame,
+    canvas_cut,
+    compose_canvas,
+    extend_to_bucket,
+    shot_framing,
+)
 from avatar_worker.cutout import CutoutError, ensure_alpha
 
 BACKGROUND = "#1f2937"
@@ -54,6 +60,54 @@ def test_avatar_height_is_scale_of_canvas_with_original_proportion(aspect):
     assert right - left == round(avatar.width * expected_height / avatar.height)
     assert bottom == round(composition["y"] * height)
     assert (left + right) / 2 == pytest.approx(composition["x"] * width, abs=1)
+
+
+def test_medio_e_o_enquadramento_atual_do_formato():
+    composition = {aspect: framing for aspect, (_, framing) in FORMATS.items()}
+
+    for aspect, (_, framing) in FORMATS.items():
+        assert shot_framing(composition, aspect, "medio") == framing
+        assert shot_framing(composition, aspect) == framing
+
+
+def test_close_salvo_no_cenario_vale_como_esta():
+    close = {"9:16": {"scale": 2.0, "x": 0.4, "y": 1.9}, "16:9": {"scale": 1.7, "x": 0.6, "y": 1.6}}
+    composition = {aspect: framing for aspect, (_, framing) in FORMATS.items()}
+    composition["close"] = close
+
+    for aspect in FORMATS:
+        assert shot_framing(composition, aspect, "close") == close[aspect]
+        assert shot_framing(composition, aspect, "medio") == FORMATS[aspect][1]
+
+
+@pytest.mark.parametrize("aspect", FORMATS)
+def test_close_derivado_e_maior_com_o_mesmo_topo_de_cabeca(aspect):
+    size, medio = FORMATS[aspect]
+    composition = {a: f for a, (_, f) in FORMATS.items()}
+
+    close = shot_framing(composition, aspect, "close")
+
+    assert close["scale"] == pytest.approx(medio["scale"] * 1.6)
+    assert close["x"] == medio["x"]
+    assert close["y"] - close["scale"] == pytest.approx(medio["y"] - medio["scale"])
+    medio_box = _avatar_box(compose_canvas(_avatar(), BACKGROUND, medio, size))
+    close_box = _avatar_box(compose_canvas(_avatar(), BACKGROUND, close, size))
+    assert abs(close_box[1] - medio_box[1]) <= 1
+    assert close_box[2] - close_box[0] > medio_box[2] - medio_box[0]
+
+
+def test_close_derivado_respeita_a_escala_maxima():
+    composition = {"9:16": {"scale": 2.0, "x": 0.5, "y": 1.2}}
+
+    close = shot_framing(composition, "9:16", "close")
+
+    assert close["scale"] == 2.5
+    assert close["y"] - close["scale"] == pytest.approx(1.2 - 2.0)
+
+
+def test_plano_desconhecido_recusado():
+    with pytest.raises(ValueError):
+        shot_framing({"9:16": FORMATS["9:16"][1]}, "9:16", "aberto")
 
 
 def test_transparent_avatar_pixels_show_background():

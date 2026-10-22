@@ -12,7 +12,7 @@ import pytest
 from PIL import Image
 
 from avatar_worker import video
-from avatar_worker.canvas import compose_canvas
+from avatar_worker.canvas import compose_canvas, shot_framing
 from avatar_worker.finalize import probe_output
 from avatar_worker.video import GenerationFailure, VideoRuntime, generate_video
 
@@ -165,6 +165,26 @@ def test_pipeline_preserves_canvas_audio_and_manifest_of_real_files(
             assert all(
                 abs(a - b) <= 8 for a, b in zip(frame.getpixel(point), expected, strict=True)
             )
+
+
+@pytest.mark.parametrize("saved_close", [False, True], ids=["derivado", "salvo"])
+def test_cena_em_close_compoe_o_canvas_com_o_close(video_case, saved_close):
+    payload, inputs, work, runtime = video_case
+    payload["shot"] = "close"
+    if saved_close:
+        payload["composition"]["close"] = {
+            a: {"scale": 1.4, "x": 0.45, "y": 1.3} for a in ("9:16", "16:9")
+        }
+    close = shot_framing(payload["composition"], "9:16", "close")
+    medio = payload["composition"]["9:16"]
+
+    generate(video_case)
+
+    assert close["scale"] > medio["scale"]
+    with Image.open(inputs["avatar"]) as avatar, Image.open(work / "canvas.png") as canvas:
+        expected = compose_canvas(avatar, "#1f2937", close, (1080, 1920))
+        assert canvas.tobytes() == expected.tobytes()
+        assert canvas.tobytes() != compose_canvas(avatar, "#1f2937", medio, (1080, 1920)).tobytes()
 
 
 def test_real_audio_over_limit_stops_before_render_even_if_adapter_omits_duration(

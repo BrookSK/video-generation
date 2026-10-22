@@ -4,10 +4,14 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from PIL import Image, ImageOps
 
 _HEX_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
+# Close derivado do plano médio quando o cenário não tem close salvo.
+CLOSE_SCALE_FACTOR = 1.6
+CLOSE_MAX_SCALE = 2.5
 
 
 def background_pad_color(background: str | Image.Image) -> str:
@@ -24,6 +28,27 @@ def _background(background: str | Image.Image, size: tuple[int, int]) -> Image.I
     if isinstance(background, str) and _HEX_COLOR.fullmatch(background):
         return Image.new("RGB", size, background)
     raise ValueError(f"fundo precisa ser cor #RRGGBB ou imagem ({background!r})")
+
+
+def shot_framing(
+    composition: Mapping[str, Any], aspect: str, shot: str = "medio"
+) -> Mapping[str, float]:
+    """Enquadramento do plano da cena: o médio do formato ou o close.
+
+    O close salvo no cenário (``composition["close"][aspect]``) vale como está. Sem ele, o
+    close sai do médio: escala 1,6 vez maior, limitada a 2,5, mesmo centro horizontal e
+    base ajustada para o topo da cabeça (``y - scale``) ficar na mesma altura.
+    """
+    medio = composition[aspect]
+    if shot == "medio":
+        return medio
+    if shot != "close":
+        raise ValueError(f"plano desconhecido ({shot!r})")
+    saved = composition.get("close", {}).get(aspect)
+    if saved is not None:
+        return saved
+    scale = min(medio["scale"] * CLOSE_SCALE_FACTOR, CLOSE_MAX_SCALE)
+    return {"scale": scale, "x": medio["x"], "y": medio["y"] - medio["scale"] + scale}
 
 
 def compose_canvas(

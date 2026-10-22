@@ -19,6 +19,7 @@ from avatar_worker.canvas import (
     canvas_cut,
     compose_canvas,
     extend_to_bucket,
+    shot_framing,
 )
 from avatar_worker.finalize import build_finalize_args, parse_output, probe_args
 from avatar_worker.manifest import check_policy, load_manifest
@@ -303,9 +304,10 @@ def generate_video(
                         with Image.open(inputs["background"]) as image:
                             background = image.convert("RGB")
                     pad = background_pad_color(background)
-                    canvas = compose_canvas(
-                        avatar, background, payload["composition"][aspect], size
+                    framing = shot_framing(
+                        payload["composition"], aspect, payload.get("shot", "medio")
                     )
+                    canvas = compose_canvas(avatar, background, framing, size)
                     canvas.save(work / "canvas.png")
                     extend_to_bucket(canvas, frame, pad).save(work / "render_input.png")
                 except (OSError, UnidentifiedImageError, ValueError, KeyError, TypeError) as exc:
