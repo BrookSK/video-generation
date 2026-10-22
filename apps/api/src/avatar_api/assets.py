@@ -63,6 +63,17 @@ _COMPOSITION_RANGES: dict[str, tuple[str, float, float]] = {
     "x": ("posição horizontal", 0.0, 1.0),
     "y": ("base", 0.5, 1.2),
 }
+# O close aproxima o apresentador: escala maior e base abaixo do canvas.
+_CLOSE_RANGES: dict[str, tuple[str, float, float]] = {
+    "scale": ("escala", 0.3, 2.5),
+    "x": ("posição horizontal", 0.0, 1.0),
+    "y": ("base", 0.5, 2.5),
+}
+CLOSE_KEY = "close"
+
+# Plano médio por formato e, opcional, "close" com o mesmo formato por dentro.
+Framing = dict[str, float]
+Composition = dict[str, Framing | dict[str, Framing]]
 
 
 def asset_dir(asset_id: uuid.UUID) -> str:
@@ -170,30 +181,46 @@ def _composition_error(message: str) -> ApiError:
     return ApiError(422, "VALIDATION_ERROR", message, "composition")
 
 
-def parse_composition(raw: str) -> dict[str, dict[str, float]]:
-    """Lê o enquadramento em JSON: exatamente 9:16 e 16:9, cada um com scale, x e y na faixa."""
+def _parse_framings(
+    data: Any, label: str, ranges: dict[str, tuple[str, float, float]]
+) -> dict[str, Framing]:
+    composition: dict[str, Framing] = {}
+    for ratio in ASPECT_RATIOS:
+        framing = data[ratio]
+        if not isinstance(framing, dict) or set(framing) != set(ranges):
+            raise _composition_error(f"{label} {ratio}: informe escala, posição e base.")
+        composition[ratio] = {}
+        for key, (name, low, high) in ranges.items():
+            value = framing[key]
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise _composition_error(f"{label} {ratio}: {name} precisa ser um número.")
+            if not (math.isfinite(value) and low <= value <= high):
+                raise _composition_error(
+                    f"{label} {ratio}: {name} {_decimal(value)} fora da faixa de "
+                    f"{_decimal(low)} a {_decimal(high)}."
+                )
+            composition[ratio][key] = float(value)
+    return composition
+
+
+def parse_composition(raw: str) -> Composition:
+    """Lê o enquadramento em JSON: exatamente 9:16 e 16:9, cada um com scale, x e y na faixa.
+
+    A chave opcional "close" traz o enquadramento fechado dos dois formatos, com faixas
+    próprias; sem ela, o worker deriva o close do plano médio.
+    """
     try:
         data: Any = json.loads(raw)
     except ValueError:
         raise _composition_error("Enquadramento inválido.") from None
-    if not isinstance(data, dict) or set(data) != set(ASPECT_RATIOS):
+    if not isinstance(data, dict) or set(data) - {CLOSE_KEY} != set(ASPECT_RATIOS):
         raise _composition_error("Informe o enquadramento de 9:16 e de 16:9.")
-    composition: dict[str, dict[str, float]] = {}
-    for ratio in ASPECT_RATIOS:
-        framing = data[ratio]
-        if not isinstance(framing, dict) or set(framing) != set(_COMPOSITION_RANGES):
-            raise _composition_error(f"Enquadramento {ratio}: informe escala, posição e base.")
-        composition[ratio] = {}
-        for key, (label, low, high) in _COMPOSITION_RANGES.items():
-            value = framing[key]
-            if isinstance(value, bool) or not isinstance(value, int | float):
-                raise _composition_error(f"Enquadramento {ratio}: {label} precisa ser um número.")
-            if not (math.isfinite(value) and low <= value <= high):
-                raise _composition_error(
-                    f"Enquadramento {ratio}: {label} {_decimal(value)} fora da faixa de "
-                    f"{_decimal(low)} a {_decimal(high)}."
-                )
-            composition[ratio][key] = float(value)
+    composition: Composition = dict(_parse_framings(data, "Enquadramento", _COMPOSITION_RANGES))
+    if CLOSE_KEY in data:
+        close = data[CLOSE_KEY]
+        if not isinstance(close, dict) or set(close) != set(ASPECT_RATIOS):
+            raise _composition_error("Informe o close de 9:16 e de 16:9.")
+        composition[CLOSE_KEY] = _parse_framings(close, "Close", _CLOSE_RANGES)
     return composition
 
 
@@ -223,7 +250,7 @@ def create_scene(
     data_dir: Path,
     user_id: uuid.UUID,
     name: str,
-    composition: dict[str, dict[str, float]],
+    composition: Composition,
     background_color: str | None = None,
     image: ValidatedImage | None = None,
 ) -> Scene:

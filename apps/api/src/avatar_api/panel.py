@@ -139,7 +139,7 @@ class SceneOut(BaseModel):
     id: uuid.UUID
     name: str
     background_color: str | None
-    composition: dict[str, dict[str, float]]
+    composition: assets.Composition
     status: assets.SceneStatus
     created_at: datetime
     archived_at: datetime | None

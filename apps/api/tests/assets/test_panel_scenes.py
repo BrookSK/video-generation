@@ -338,6 +338,64 @@ def test_recusa_enquadramento_invalido(panel, session, settings, composition, me
     assert snapshot(session, settings.data_dir) == before
 
 
+CLOSE = {
+    "9:16": {"scale": 1.6, "x": 0.5, "y": 1.6},
+    "16:9": {"scale": 2.5, "x": 0.35, "y": 2.5},
+}
+
+
+def test_close_valido_salvo_e_lido_de_volta(panel, session):
+    response = post_scene(panel, composition={**COMPOSITION, "close": CLOSE})
+
+    assert response.status_code == 201, response.text
+    expected = {**COMPOSITION, "close": CLOSE}
+    assert response.json()["composition"] == expected
+    session.expire_all()
+    assert session.get(Scene, uuid.UUID(response.json()["id"])).composition == expected
+    listed = panel.get("/panel/scenes").json()
+    assert listed[0]["composition"] == expected
+
+
+def _close_with(ratio: str, key: str, value) -> dict:
+    close = json.loads(json.dumps(CLOSE))
+    close[ratio][key] = value
+    return {**COMPOSITION, "close": close}
+
+
+@pytest.mark.parametrize(
+    ("composition", "message"),
+    [
+        (_close_with("9:16", "scale", 2.6), "Close 9:16: escala 2,6 fora da faixa de 0,3 a 2,5."),
+        (_close_with("16:9", "scale", 0.2), "Close 16:9: escala 0,2 fora da faixa de 0,3 a 2,5."),
+        (_close_with("16:9", "y", 2.51), "Close 16:9: base 2,51 fora da faixa de 0,5 a 2,5."),
+        (
+            _close_with("9:16", "x", 1.2),
+            "Close 9:16: posição horizontal 1,2 fora da faixa de 0 a 1.",
+        ),
+        (_close_with("9:16", "y", "1"), "Close 9:16: base precisa ser um número."),
+        ({**COMPOSITION, "close": {"9:16": CLOSE["9:16"]}}, "Informe o close de 9:16 e de 16:9."),
+        ({**COMPOSITION, "close": []}, "Informe o close de 9:16 e de 16:9."),
+        (
+            {**COMPOSITION, "close": {**CLOSE, "16:9": {"scale": 1.0}}},
+            "Close 16:9: informe escala, posição e base.",
+        ),
+        ({"close": CLOSE}, "Informe o enquadramento de 9:16 e de 16:9."),
+    ],
+)
+def test_close_fora_da_faixa_recusado(panel, session, settings, composition, message):
+    before = snapshot(session, settings.data_dir)
+
+    response = post_scene(panel, composition=composition)
+
+    assert response.status_code == 422
+    assert error_of(response) == {
+        "code": "VALIDATION_ERROR",
+        "message": message,
+        "field": "composition",
+    }
+    assert snapshot(session, settings.data_dir) == before
+
+
 def test_recusa_sem_enquadramento(panel, session, settings):
     before = snapshot(session, settings.data_dir)
 

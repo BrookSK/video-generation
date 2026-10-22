@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from avatar_api.assets import asset_dir
+from avatar_api.assets import Composition, asset_dir
 from avatar_api.errors import ApiError
 from avatar_api.models import (
     AssetPrepareTask,
@@ -214,7 +214,7 @@ class VideoPayload(BaseModel):
     recipe_id: uuid.UUID
     recipe_spec: dict[str, Any]
     background_color: str | None
-    composition: dict[str, dict[str, float]]
+    composition: Composition
 
 
 class AssetPreparePayload(BaseModel):
