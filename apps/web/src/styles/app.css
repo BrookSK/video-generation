@@ -450,3 +450,10 @@ input, textarea { caret-color: var(--c-ink); }
 .brand-card img { max-width: 60%; max-height: 140px; object-fit: contain; }
 .brand-card i { width: 25%; min-width: 48px; height: 6px; border-radius: 3px; background: var(--c-tally); }
 .brand-card-empty { color: var(--c-stage-muted); font-weight: var(--fw-semibold); }
+.lesson-form { grid-template-columns: minmax(0, 760px); }
+.lesson-scenes { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--sp-3); }
+.lesson-scene { display: grid; gap: var(--sp-2); padding: var(--sp-4); border: 1px solid var(--c-line); border-radius: var(--r-m); background: var(--c-surface); min-width: 0; }
+.lesson-scene > .field-row > label, .lesson-scene > .field-row > b { font-weight: var(--fw-semibold); }
+.lesson-scene-tools { display: flex; flex-wrap: wrap; gap: 4px; }
+.lesson-progress { grid-column: 1 / -1; display: grid; gap: var(--sp-4); }
+.lesson-progress h2 { font-size: var(--fs-18); font-weight: var(--fw-bold); }

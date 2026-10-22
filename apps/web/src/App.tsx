@@ -6,6 +6,9 @@ import { Access } from "./screens/Access";
 import { Avatars } from "./screens/Avatars";
 import { History } from "./screens/History";
 import { Identity } from "./screens/Identity";
+import { LessonResult } from "./screens/LessonResult";
+import { Lessons } from "./screens/Lessons";
+import { NewLesson } from "./screens/NewLesson";
 import { NewVideo } from "./screens/NewVideo";
 import { VideoResult } from "./screens/VideoResult";
 import { Login } from "./screens/Login";
@@ -169,6 +172,9 @@ export function App() {
         <Route path="/novo-video" element={<NewVideo />} />
         <Route path="/historico" element={<History />} />
         <Route path="/videos/:id" element={<VideoResult />} />
+        <Route path="/aulas" element={<Lessons />} />
+        <Route path="/aulas/nova" element={<NewLesson />} />
+        <Route path="/aulas/:id" element={<LessonResult />} />
         <Route path="/identidade" element={<Identity />} />
         <Route path="/avatares" element={<Avatars />} />
         <Route path="/cenarios" element={<Scenes />} />
