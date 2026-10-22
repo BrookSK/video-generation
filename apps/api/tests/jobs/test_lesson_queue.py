@@ -110,9 +110,7 @@ def assert_error(response, status: int, code: str) -> None:
 # --- cenas -> montagem ------------------------------------------------------------------
 
 
-def test_payload_da_cena_leva_o_plano_e_o_avulso_fica_em_medio(
-    lesson_panel, brand, seeded_catalog
-):
+def test_payload_da_cena_leva_o_plano_e_o_avulso_fica_em_medio(lesson_panel, brand, seeded_catalog):
     create_lesson(
         lesson_panel,
         seeded_catalog,

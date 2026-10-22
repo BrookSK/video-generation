@@ -112,9 +112,7 @@ def test_202_so_depois_do_commit_com_cenas_jobs_e_identidade(
             assert (job.status, job.recipe_id) == ("queued", seeded_catalog.recipe_id)
 
 
-def test_formato_padrao_e_9x16_e_plano_padrao_e_medio(
-    lesson_panel, brand, seeded_catalog, session
-):
+def test_formato_padrao_e_9x16_e_plano_padrao_e_medio(lesson_panel, brand, seeded_catalog, session):
     body = lesson_body(seeded_catalog)
     del body["aspect_ratio"]
     body["scenes"] = [{"script_text": text} for text in SCENE_TEXTS[:2]]
@@ -255,9 +253,7 @@ def test_mesma_chave_e_mesmo_corpo_devolve_a_mesma_aula(
     assert counts(session) == (1, 3, 3)
 
 
-def test_mesma_chave_com_corpo_diferente_responde_409(
-    lesson_panel, brand, seeded_catalog, session
-):
+def test_mesma_chave_com_corpo_diferente_responde_409(lesson_panel, brand, seeded_catalog, session):
     assert post_lesson(lesson_panel, lesson_body(seeded_catalog), key="aula-1").status_code == 202
 
     for changed in (
