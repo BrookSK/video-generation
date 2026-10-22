@@ -653,6 +653,76 @@
         }
       }
     },
+    "/panel/brand-identity": {
+      "get": {
+        "summary": "Get Brand Identity",
+        "operationId": "get_brand_identity_panel_brand_identity_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandIdentityOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Brand Identity",
+        "operationId": "put_brand_identity_panel_brand_identity_put",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_put_brand_identity_panel_brand_identity_put"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandIdentityOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/brand-identity/logo": {
+      "get": {
+        "summary": "Brand Identity Logo",
+        "operationId": "brand_identity_logo_panel_brand_identity_logo_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/generation-config": {
       "get": {
         "summary": "Generation Config",
@@ -2593,6 +2663,36 @@
         ],
         "title": "Body_create_scene_panel_scenes_post"
       },
+      "Body_put_brand_identity_panel_brand_identity_put": {
+        "properties": {
+          "background_color": {
+            "type": "string",
+            "title": "Background Color"
+          },
+          "accent_color": {
+            "type": "string",
+            "title": "Accent Color"
+          },
+          "logo": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "background_color",
+          "accent_color"
+        ],
+        "title": "Body_put_brand_identity_panel_brand_identity_put"
+      },
       "Body_upload_asset_task_file_internal_v1_asset_tasks__task_id__attempts__attempt_id__files__name__put": {
         "properties": {
           "file": {
@@ -2642,6 +2742,76 @@
           "lease_generation"
         ],
         "title": "Body_upload_attempt_file_internal_v1_jobs__job_id__attempts__attempt_id__files__name__put"
+      },
+      "BrandIdentityOut": {
+        "properties": {
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "background_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background Color"
+          },
+          "accent_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accent Color"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "logo_url",
+          "background_color",
+          "accent_color",
+          "updated_at",
+          "updated_by"
+        ],
+        "title": "BrandIdentityOut",
+        "description": "Sem cadastro, todos os campos vêm nulos."
       },
       "ClaimIn": {
         "properties": {
@@ -3517,10 +3687,23 @@
           },
           "composition": {
             "additionalProperties": {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  "type": "object"
+                }
+              ]
             },
             "type": "object",
             "title": "Composition"
@@ -3880,10 +4063,23 @@
           },
           "composition": {
             "additionalProperties": {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  "type": "object"
+                }
+              ]
             },
             "type": "object",
             "title": "Composition"
