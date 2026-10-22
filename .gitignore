@@ -1,6 +1,9 @@
 # Bianchini Method (workspace local, nao versionar)
 .bianchini/
 
+# OpenSpec (planejamento local, nao versionar)
+openspec/
+
 # Segredos e ambiente
 .env
 .env.*
