@@ -466,3 +466,16 @@ def test_qwen_recipe_with_real_marina_and_faber_references_is_valid():
     recipe = recipe_from_mapping(_recipe(real_voices), MANIFEST)
 
     assert recipe.tts.voices["feminina"].transcript == marina["provenance"]["text"]
+
+
+def test_recipe_v2_is_a_valid_qwen_draft_with_marina_and_faber():
+    raw = json.loads((MODELS_DIR / "RECIPE-v2.json").read_text(encoding="utf-8"))
+
+    recipe = recipe_from_mapping(raw, MANIFEST)
+
+    assert (recipe.name, recipe.status) == ("RECIPE-v2", "draft")
+    assert recipe.tts.engine == "qwen3-tts-base"
+    assert recipe.tts.voices["feminina"].path == "fleurs-voice-references/marina.wav"
+    assert recipe.tts.voices["masculina"].path == FABER
+    assert dict(recipe.tts.sampler) == SAMPLER
+    assert raw["avatar"] == {**DRAFT["avatar"], "max_frame_num": 750}

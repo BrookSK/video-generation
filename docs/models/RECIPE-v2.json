@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "name": "RECIPE-v2",
+  "status": "draft",
+  "manifest": "MODEL_MANIFEST.json",
+  "worker_image": {
+    "ref": "vccr.io/5e20534f-f96c-42fb-8a52-deb4f7e28efc/avatar-worker",
+    "digest": null
+  },
+  "cutout": {
+    "model": "birefnet-portrait",
+    "components": [
+      "rembg",
+      "birefnet-portrait"
+    ]
+  },
+  "tts": {
+    "engine": "qwen3-tts-base",
+    "language": "pt",
+    "sample_rate": 24000,
+    "components": [
+      "qwen-tts",
+      "qwen3-tts-12hz-1.7b-base",
+      "ohf-voice-pt-br",
+      "fleurs-pt-br"
+    ],
+    "sampler": {
+      "seed": 20261015,
+      "temperature": 0.9,
+      "top_p": 1.0,
+      "top_k": 50,
+      "repetition_penalty": 1.5,
+      "repetition_window": 64,
+      "max_new_tokens": 512
+    },
+    "voices": {
+      "feminina": {
+        "kind": "reference",
+        "path": "fleurs-voice-references/marina.wav",
+        "sha256": "48febb72a3a1d1a4b636fe5f443fd4cc4f5943842f70d22c5d71d816e8b76630",
+        "transcript": "Se você se machucar enquanto tenta ajudar, você só vai servir para piorar a situação."
+      },
+      "masculina": {
+        "kind": "reference",
+        "path": "qwen-voice-references/faber.wav",
+        "sha256": "f0475c62f5a0ee0e0a8717749739f9a677ad82ce9026db4a217f8ae5bed3ce48",
+        "transcript": "Os descontos chegam a 78% e correspondem aos impostos que incidem sobre as mercadorias."
+      }
+    }
+  },
+  "avatar": {
+    "engine": "infinitetalk-single",
+    "components": [
+      "infinitetalk-code",
+      "infinitetalk-weights",
+      "wan2.1-i2v-14b-480p",
+      "chinese-wav2vec2-base",
+      "lightx2v-lora"
+    ],
+    "wheels": [
+      "flash-attn-wheel",
+      "xformers-wheel"
+    ],
+    "profile": "480p-bf16-a100-lightx2v4",
+    "size": "infinitetalk-480",
+    "sample_steps": 4,
+    "mode": "streaming",
+    "max_frame_num": 750,
+    "motion_frame": 9,
+    "quant": null,
+    "num_persistent_param_in_dit": null,
+    "lora": {
+      "component": "lightx2v-lora",
+      "file": "Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors",
+      "sha256": "914fafa5dded72e6c470d6f764b97fe4d71567dae7cc01d1181b310efd5c37a6",
+      "scale": 1.0
+    },
+    "sample_text_guide_scale": 1.0,
+    "sample_audio_guide_scale": 2.0,
+    "prompt": "A head-and-shoulders shot of a person talking to the camera, with natural head movements, subtle shoulder motion and expressive facial expressions. The hands stay out of the frame, the person makes no gestures and no new objects appear at the edges of the frame.",
+    "negative_prompt": null,
+    "buckets": {
+      "9:16": [
+        448,
+        832
+      ],
+      "16:9": [
+        896,
+        448
+      ]
+    }
+  },
+  "canvas": {
+    "9:16": [
+      1080,
+      1920
+    ],
+    "16:9": [
+      1920,
+      1080
+    ]
+  },
+  "calibration": {
+    "composition": {
+      "9:16": {
+        "scale": 0.8,
+        "x": 0.5,
+        "y": 1.0
+      },
+      "16:9": {
+        "scale": 1.05,
+        "x": 0.5,
+        "y": 1.15
+      }
+    }
+  },
+  "output": {
+    "fps": 25,
+    "video_codec": "libx264",
+    "pix_fmt": "yuv420p",
+    "crf": 18,
+    "preset": "medium",
+    "audio_codec": "aac",
+    "audio_sample_rate": 48000,
+    "audio_bitrate": "192k",
+    "faststart": true
+  },
+  "limits": {
+    "max_audio_seconds": 30,
+    "max_script_chars": 450,
+    "chars_per_second": 15
+  },
+  "pilot": null
+}
