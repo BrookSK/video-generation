@@ -44,7 +44,7 @@ diagnóstico automático de fala concede aceite C1–C7 ou congelamento.
 | C4 | Expressão variável; não aceitar rosto estático com boca apenas. |
 | C5 | Rosto/corpo sem esticar nem cortar; pad só da cor do cenário. |
 | C6 | Sem color shift/deriva temporal, inclusive amostra longa. |
-| C7 | `watermark_detected` verdadeiro; watermark Perth do Chatterbox preservado. |
+| C7 | Conforme a engine de `tts.engine`. Chatterbox: `watermark_detected` verdadeiro, com o watermark Perth preservado. Qwen3-TTS (`qwen3-tts-base`): `watermark_detected` nulo, porque o Qwen não aplica watermark e o áudio não passa pelo Perth; o manifesto da tentativa traz a receita com engine, sampler e voz (referência com SHA-256 e transcrição), e o `MODEL_MANIFEST.json` traz a revisão dos pesos e a licença da referência. |
 
 Cliente/avaliador registra cada veredito em `docs/models/PILOTO-v1.md`, incluindo autorização, GPU/perfil, medições e referência privada das amostras. Reprovação mantém receita não congelada, exige ajuste/reamostragem ou replanejamento para fallback documentado (EchoMimicV3 ou LongCat-Video-Avatar-1.5), sem trocar o combinado funcional. Somente aprovação real permite congelar `RECIPE-v1.json`, registrar limites medidos e carregar a receita na API. Nenhum arquivo de piloto aprovado existe ainda.
 

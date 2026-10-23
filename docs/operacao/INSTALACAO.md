@@ -671,6 +671,44 @@ No servidor, na raiz do clone, repita a conferência com
 `REFS_MODELS=/srv/avatar/models`. O piloto e o worker montam esse diretório em
 `/models` só leitura.
 
+### Referência humana da engine Qwen
+
+A receita com `tts.engine` `qwen3-tts-base` usa o Qwen3-TTS Base 1.7B
+(`qwen3-tts-12hz-1.7b-base`, revisão fixada no manifesto, Apache-2.0). O Qwen
+clona a voz de uma referência humana com transcrição. A voz `masculina` é a
+gravação `faber` do OHF Voice Datasets (CC0-1.0, componente `ohf-voice-pt-br`).
+
+O `faber.wav` do componente `qwen-voice-references` (kind `derived`) é o MP3 de
+origem convertido para PCM 16 bits, mono, 24 kHz pelo FFmpeg, como descreve a
+proveniência no manifesto. A transcrição fica em `provenance.text` e a receita
+repete o mesmo texto em `tts.voices.<voz>.transcript`. O WAV não é gerado de
+novo na instalação: outra versão do FFmpeg pode mudar os bytes aprovados. Copie
+o arquivo do pacote privado das amostras para
+`/srv/avatar/models/qwen-voice-references/faber.wav` e confira o SHA-256 com o
+manifesto:
+
+```bash
+python3 - /srv/avatar/models <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+models = Path(sys.argv[1])
+manifest = json.loads(Path("docs/models/MODEL_MANIFEST.json").read_text(encoding="utf-8"))
+(component,) = [c for c in manifest["components"] if c["id"] == "qwen-voice-references"]
+for entry in component["files"]:
+    path = models / component["id"] / entry["path"]
+    ok = path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == entry["sha256"]
+    print(f"{path} {'ok' if ok else 'AUSENTE OU DIVERGENTE'}")
+PY
+```
+
+Os pesos do Qwen e o MP3 de origem vêm pelo `models-pull.sh`, como os demais
+componentes `model`. Na imagem do worker, o Qwen roda em `runtimes/qwen-tts`,
+com Python e `transformers` próprios; o Python do runtime pode ser trocado pela
+variável `QWEN_TTS_PYTHON`, como `TTS_PYTHON` no Chatterbox.
+
 ## Piloto
 
 O piloto e o congelamento da receita são obrigações finais da P06; as
