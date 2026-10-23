@@ -28,15 +28,17 @@ from avatar_worker.pilot import (
     AVATAR_STAGE,
     DEFAULT_AVATAR_PYTHON,
     DEFAULT_INFINITETALK_DIR,
+    DEFAULT_QWEN_TTS_PYTHON,
     DEFAULT_TTS_PYTHON,
     DEFAULT_VRAM_COMMAND,
     TTS_STAGE,
     VRAM_INTERVAL_S,
     StageFailure,
     StageMeter,
+    tts_request_fields,
 )
 from avatar_worker.process import ProcessFailure, run_process
-from avatar_worker.recipe import RecipeError, recipe_from_mapping
+from avatar_worker.recipe import QWEN_ENGINE, RecipeError, recipe_from_mapping
 
 MANIFEST_PATH = Path(__file__).resolve().parents[4] / "docs/models/MODEL_MANIFEST.json"
 
@@ -56,6 +58,7 @@ class VideoRuntime:
     models_dir: Path = Path("/models")
     manifest_path: Path = MANIFEST_PATH
     tts_python: Path = DEFAULT_TTS_PYTHON
+    qwen_tts_python: Path = DEFAULT_QWEN_TTS_PYTHON
     avatar_python: Path = DEFAULT_AVATAR_PYTHON
     infinitetalk_dir: Path = DEFAULT_INFINITETALK_DIR
     tts_script: Path = TTS_STAGE
@@ -71,6 +74,7 @@ class VideoRuntime:
                     ("models_dir", "MODELS_DIR"),
                     ("manifest_path", "MODEL_MANIFEST"),
                     ("tts_python", "TTS_PYTHON"),
+                    ("qwen_tts_python", "QWEN_TTS_PYTHON"),
                     ("avatar_python", "AVATAR_PYTHON"),
                     ("infinitetalk_dir", "INFINITETALK_DIR"),
                 )
@@ -243,7 +247,8 @@ def generate_video(
         recipe = recipe_from_mapping(payload["recipe_spec"], manifest, require_frozen=True)
         aspect = payload["aspect_ratio"]
         size = recipe.canvas[aspect]
-        voice = recipe.tts.voices[payload["voice"]]
+        # Voz fora da receita é KeyError aqui, antes de qualquer estágio.
+        recipe.tts.voices[payload["voice"]]
         text = payload["script_text"]
         if (
             not isinstance(text, str)
@@ -315,18 +320,16 @@ def generate_video(
                         "INPUT_INVALID", "O avatar ou cenário está inválido."
                     ) from exc
             with stage("tts"):
-                voice_request = {"kind": voice.kind}
-                if voice.kind == "reference":
-                    voice_request.update(path=voice.path, sha256=voice.sha256)
+                qwen = recipe.tts.engine == QWEN_ENGINE
                 tts = _stage_result(
-                    runtime.tts_python,
+                    runtime.qwen_tts_python if qwen else runtime.tts_python,
                     runtime.tts_script,
                     {
                         "text": text,
                         "language": recipe.tts.language,
                         "models_dir": str(runtime.models_dir),
                         "out_wav": str(files["audio.wav"]),
-                        "voice": voice_request,
+                        **tts_request_fields(recipe, payload["voice"]),
                     },
                     "tts",
                     work,

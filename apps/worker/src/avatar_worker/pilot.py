@@ -48,9 +48,11 @@ from avatar_worker.cutout import ensure_alpha
 from avatar_worker.finalize import build_finalize_args, probe_output, run_finalize
 from avatar_worker.manifest import check_policy, load_manifest
 from avatar_worker.recipe import (
+    CHATTERBOX_ENGINE,
     COMPOSITION_RANGES,
     FORMATS,
     FPS,
+    QWEN_ENGINE,
     VOICES,
     Recipe,
     RecipeError,
@@ -61,6 +63,8 @@ RUNTIMES_DIR = Path(__file__).resolve().parents[2] / "runtimes"
 TTS_STAGE = RUNTIMES_DIR / "tts" / "tts_stage.py"
 AVATAR_STAGE = RUNTIMES_DIR / "avatar" / "avatar_stage.py"
 DEFAULT_TTS_PYTHON = RUNTIMES_DIR / "tts" / ".venv" / "bin" / "python"
+# O Qwen roda o mesmo tts_stage.py com o Python do próprio runtime (transformers 4.57).
+DEFAULT_QWEN_TTS_PYTHON = RUNTIMES_DIR / "qwen-tts" / ".venv" / "bin" / "python"
 DEFAULT_AVATAR_PYTHON = RUNTIMES_DIR / "avatar" / ".venv" / "bin" / "python"
 DEFAULT_INFINITETALK_DIR = Path("/opt/infinitetalk")
 DEFAULT_VRAM_COMMAND = "nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits"
@@ -259,7 +263,21 @@ def _voice_request(recipe: Recipe, voice: str) -> dict[str, Any]:
     request: dict[str, Any] = {"kind": spec.kind}
     if spec.kind == "reference":
         request.update(path=spec.path, sha256=spec.sha256)
+    if spec.transcript is not None:
+        request["transcript"] = spec.transcript
     return request
+
+
+def tts_request_fields(recipe: Recipe, voice: str) -> dict[str, Any]:
+    """Engine, voz e sampler que o estágio de TTS recebe da receita, sem padrão local."""
+    fields: dict[str, Any] = {"engine": recipe.tts.engine, "voice": _voice_request(recipe, voice)}
+    if recipe.tts.sampler is not None:
+        fields["sampler"] = dict(recipe.tts.sampler)
+    return fields
+
+
+def default_tts_python(engine: str) -> Path:
+    return DEFAULT_QWEN_TTS_PYTHON if engine == QWEN_ENGINE else DEFAULT_TTS_PYTHON
 
 
 def _load_reviewed_tts(args: argparse.Namespace, recipe: Recipe, sample: Sample) -> ReviewedTTS:
@@ -275,10 +293,15 @@ def _load_reviewed_tts(args: argparse.Namespace, recipe: Recipe, sample: Sample)
     result = json.loads((directory / "tts_result.json").read_text(encoding="utf-8"))
     if not isinstance(request, dict) or not isinstance(result, dict):
         raise ValueError("tts_request.json e tts_result.json precisam ser objetos")
+    expected = tts_request_fields(recipe, sample.voice)
+    # Pedidos gravados antes da engine Qwen não têm engine nem sampler: valem como Chatterbox.
+    if request.get("engine", CHATTERBOX_ENGINE) != expected["engine"]:
+        raise ValueError("request.engine difere da receita")
     for field, value in (
         ("text", sample.text),
         ("language", recipe.tts.language),
-        ("voice", _voice_request(recipe, sample.voice)),
+        ("voice", expected["voice"]),
+        ("sampler", expected.get("sampler")),
     ):
         if request.get(field) != value:
             raise ValueError(f"request.{field} difere da amostra ou da receita")
@@ -315,7 +338,11 @@ def _load_reviewed_tts(args: argparse.Namespace, recipe: Recipe, sample: Sample)
         raise ValueError("result.duration_s difere da duração medida do WAV")
     if not isinstance(result.get("audio_path"), str) or not result["audio_path"].strip():
         raise ValueError("result.audio_path precisa ser texto não vazio; o caminho não será usado")
-    if result.get("watermark_detected") is not True:
+    # C7 por engine: o Chatterbox embute o Perth; o Qwen não tem watermark e não pode alegá-la.
+    if recipe.tts.engine == QWEN_ENGINE:
+        if result.get("watermark_detected") is not None:
+            raise ValueError("result.watermark_detected precisa ser null na engine Qwen")
+    elif result.get("watermark_detected") is not True:
         raise ValueError("result.watermark_detected precisa ser true")
     return ReviewedTTS(directory, audio, digest, duration, request, result)
 
@@ -387,7 +414,7 @@ def _run_once(
                     "language": recipe.tts.language,
                     "models_dir": str(args.models),
                     "out_wav": str(work_dir / "speech.wav"),
-                    "voice": _voice_request(recipe, sample.voice),
+                    **tts_request_fields(recipe, sample.voice),
                 },
                 work_dir,
                 "tts",
@@ -762,7 +789,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--reviewed-audio-sha256",
         help="SHA-256 do WAV escolhido pelo operador; não implica aprovação humana",
     )
-    parser.add_argument("--tts-python", type=Path, default=DEFAULT_TTS_PYTHON)
+    parser.add_argument(
+        "--tts-python", type=Path, help="padrão: o Python do runtime da engine de TTS da receita"
+    )
     parser.add_argument("--avatar-python", type=Path, default=DEFAULT_AVATAR_PYTHON)
     parser.add_argument("--infinitetalk-dir", type=Path, default=DEFAULT_INFINITETALK_DIR)
     parser.add_argument("--vram-command", type=shlex.split, default=DEFAULT_VRAM_COMMAND)
@@ -796,6 +825,8 @@ def main(argv: list[str] | None = None) -> int:
     except RecipeError as exc:
         print(f"Receita recusada:\n{exc}", file=sys.stderr)
         return 1
+    if args.tts_python is None:
+        args.tts_python = default_tts_python(recipe.tts.engine)
     args.reviewed_tts = None
     if args.reviewed_tts_dir is not None:
         try:

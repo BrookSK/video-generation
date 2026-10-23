@@ -438,3 +438,27 @@ def test_render_that_would_cut_the_canvas_fails_avatar_stage(env, tmp_path):
     (run,) = report["runs"]
     assert run["canvas_cut_px"] > 0
     assert _finals(env["out"]) == []
+
+
+def test_qwen_recipe_sends_engine_transcript_and_sampler_to_tts(env, tmp_path):
+    import test_recipe
+
+    recipe = tmp_path / "recipe-qwen.json"
+    recipe.write_text(json.dumps(test_recipe._recipe(test_recipe._qwen)), encoding="utf-8")
+    manifest = tmp_path / "manifest-qwen.json"
+    manifest.write_text(json.dumps(test_recipe.QWEN_MANIFEST), encoding="utf-8")
+    args = _queue(env, _sample("qwen", "9:16", voice="masculina"))
+    args[args.index("--recipe") + 1] = str(recipe)
+    args[args.index("--manifest") + 1] = str(manifest)
+
+    assert pilot.main(args) == 0
+
+    request = json.loads((env["out"] / "qwen" / "run-1" / "tts_request.json").read_text())
+    assert request["engine"] == "qwen3-tts-base"
+    assert request["voice"]["transcript"] == test_recipe.FABER_TEXT
+    assert request["sampler"] == test_recipe.SAMPLER
+
+
+def test_default_tts_python_follows_engine():
+    assert pilot.default_tts_python("qwen3-tts-base") == pilot.DEFAULT_QWEN_TTS_PYTHON
+    assert pilot.default_tts_python("chatterbox-multilingual") == pilot.DEFAULT_TTS_PYTHON

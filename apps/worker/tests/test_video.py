@@ -1,6 +1,7 @@
 """Dobles de inferência só nos subprocessos de teste; imagens/WAV/MP4/FFmpeg são reais."""
 
 import copy
+import dataclasses
 import hashlib
 import json
 import subprocess
@@ -240,3 +241,40 @@ def test_finalizer_output_with_wrong_frame_rate_is_refused(video_case, monkeypat
         generate(video_case)
     assert failure.value.code == "OUTPUT_INVALID"
     assert probe_output(video_case[2] / "final.mp4")["r_frame_rate"] == "24/1"
+
+
+def test_qwen_recipe_runs_tts_with_qwen_runtime_and_recipe_sampler(video_case, tmp_path):
+    import test_recipe
+
+    payload, inputs, work, runtime = video_case
+    test_recipe._qwen(payload["recipe_spec"])
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(test_recipe.QWEN_MANIFEST), encoding="utf-8")
+    # O Python do Chatterbox não existe: a engine Qwen precisa usar o runtime próprio.
+    runtime = dataclasses.replace(
+        runtime,
+        manifest_path=manifest,
+        tts_python=tmp_path / "chatterbox-ausente" / "python",
+        qwen_tts_python=Path(sys.executable),
+    )
+
+    generate((payload, inputs, work, runtime))
+
+    request = json.loads((work / "tts_request.json").read_text(encoding="utf-8"))
+    voice = payload["recipe_spec"]["tts"]["voices"]["feminina"]
+    assert request["engine"] == "qwen3-tts-base"
+    assert request["text"] == payload["script_text"]
+    assert request["voice"] == voice
+    assert request["sampler"] == test_recipe.SAMPLER
+
+
+def test_chatterbox_recipe_keeps_its_runtime_without_sampler(video_case, tmp_path):
+    payload, inputs, work, runtime = video_case
+    runtime = dataclasses.replace(runtime, qwen_tts_python=tmp_path / "qwen-ausente" / "python")
+
+    generate((payload, inputs, work, runtime))
+
+    request = json.loads((work / "tts_request.json").read_text(encoding="utf-8"))
+    assert request["engine"] == "chatterbox-multilingual"
+    assert "sampler" not in request
+    assert "transcript" not in request["voice"]

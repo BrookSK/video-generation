@@ -200,3 +200,61 @@ def test_without_reviewed_flags_the_original_tts_flow_is_preserved(env):
     assert pilot.main(base._queue(env, base._sample("original", "9:16"))) == 0
     assert base._events(env["log"]) == base._run_events("original/run-1")
     assert "audio_source" not in base._report(env["out"], "original")["runs"][0]
+
+
+def _qwen_reviewed(env, tmp_path, watermark):
+    import test_recipe
+
+    directory, _, _, args = _reviewed(env, tmp_path)
+    recipe = test_recipe._recipe(test_recipe._qwen)
+    recipe_path = tmp_path / "recipe-qwen.json"
+    recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+    manifest = tmp_path / "manifest-qwen.json"
+    manifest.write_text(json.dumps(test_recipe.QWEN_MANIFEST), encoding="utf-8")
+    args[args.index("--recipe") + 1] = str(recipe_path)
+    args[args.index("--manifest") + 1] = str(manifest)
+    request = json.loads((directory / "tts_request.json").read_text())
+    request.update(
+        engine="qwen3-tts-base",
+        voice=recipe["tts"]["voices"]["feminina"],
+        sampler=test_recipe.SAMPLER,
+    )
+    (directory / "tts_request.json").write_text(json.dumps(request), encoding="utf-8")
+    result = json.loads((directory / "tts_result.json").read_text())
+    result["watermark_detected"] = watermark
+    (directory / "tts_result.json").write_text(json.dumps(result), encoding="utf-8")
+    return directory, args
+
+
+def test_qwen_reviewed_audio_requires_null_watermark(env, tmp_path):
+    _, args = _qwen_reviewed(env, tmp_path, None)
+
+    assert pilot.main(args) == 0
+
+    run = base._report(env["out"], "fixed")["runs"][0]
+    assert run["watermark_detected"] is None
+
+
+@pytest.mark.parametrize(
+    "filename, field, value, message",
+    [
+        ("tts_result.json", "watermark_detected", True, "precisa ser null na engine Qwen"),
+        ("tts_request.json", "engine", "chatterbox-multilingual", "request.engine"),
+        ("tts_request.json", "sampler", {"seed": 1}, "request.sampler"),
+    ],
+    ids=["watermark-alegada", "engine-trocada", "sampler-diferente"],
+)
+def test_qwen_reviewed_audio_rejects_other_engine_metadata(
+    env, tmp_path, capsys, filename, field, value, message
+):
+    directory, args = _qwen_reviewed(env, tmp_path, None)
+    data = json.loads((directory / filename).read_text())
+    data[field] = value
+    (directory / filename).write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        pilot.main(args)
+
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
+    assert not env["out"].exists()
