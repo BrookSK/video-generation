@@ -9,6 +9,7 @@ import pytest
 from avatar_worker.lesson_text import (
     LAYOUTS,
     MAX_SUBTITLE_LINES,
+    SUBTITLE_HOLD_SECONDS,
     detect_speech,
     draw_subtitle,
     draw_topics,
@@ -184,7 +185,7 @@ def test_trechos_ficam_dentro_da_frase_falada(tmp_path):
     duration = sum(seconds for _, seconds in pattern)
 
     speech = detect_speech(audio, duration, tmp_path, "cena", lambda: None, os.environ)
-    chunks, method = time_chunks(split_subtitles(text, "9:16"), speech, duration)
+    chunks, method = time_chunks(text, "9:16", speech, duration)
 
     assert method == "silence"
     assert len(speech) == 3
@@ -194,15 +195,45 @@ def test_trechos_ficam_dentro_da_frase_falada(tmp_path):
     assert len(chunks) > 3
     for chunk in chunks:
         start, end = speech[chunk.sentence]
-        assert start <= chunk.start < chunk.end <= end + 1e-6
+        assert start <= chunk.start < chunk.end <= end + SUBTITLE_HOLD_SECONDS + 1e-6
+    for previous, current in zip(chunks, chunks[1:], strict=False):
+        assert previous.end <= current.start + 1e-6
     assert "".join(chunk.text for chunk in chunks) == text
 
 
-def test_intervalos_que_nao_casam_usam_os_caracteres_na_cena_inteira():
-    text = "Uma frase. Outra frase. Mais uma."
-    chunks = split_subtitles(text, "16:9")
+def test_pausa_depois_do_ordinal_separa_o_trecho():
+    text = (
+        "Terceiro: proteja pisos, esquadrias e áreas comuns. "
+        "Isole o ambiente, sinalize os riscos e controle a circulação de pessoas."
+    )
+    # Fala medida na cena 4 do Rafael: o ordinal sozinho, depois três trechos de fala.
+    speech = [(0.0, 0.56), (0.95, 3.95), (4.62, 5.72), (6.0, 8.89)]
 
-    timed, method = time_chunks(chunks, [(0.5, 3.0)], 6.0)
+    chunks, method = time_chunks(text, "16:9", speech, 9.32)
+
+    assert method == "silence"
+    assert chunks[0].text == "Terceiro: "
+    assert chunks[0].start == 0.0 and chunks[0].end <= 0.95
+    assert chunks[1].text.startswith("proteja") and chunks[1].start == 0.95
+    isole = next(chunk for chunk in chunks if chunk.text.startswith("Isole"))
+    assert isole.start == 4.62
+    sinalize = next(chunk for chunk in chunks if chunk.text.startswith("sinalize"))
+    assert sinalize.start == 6.0
+    assert "".join(chunk.text for chunk in chunks) == text
+
+
+def test_mais_trechos_de_fala_que_palavras_une_as_menores_pausas():
+    chunks, method = time_chunks("Olá, mundo.", "16:9", [(0.0, 0.4), (0.5, 0.9), (1.6, 2.4)], 3.0)
+
+    assert method == "silence"
+    assert [chunk.text for chunk in chunks] == ["Olá, ", "mundo."]
+    assert chunks[0].start == 0.0 and chunks[1].start == 1.6
+
+
+def test_sem_fala_detectada_usa_os_caracteres_na_cena_inteira():
+    text = "Uma frase. Outra frase. Mais uma."
+
+    timed, method = time_chunks(text, "16:9", [], 6.0)
 
     assert method == "characters"
     assert timed[0].start == 0.0 and timed[-1].end == 6.0

@@ -1,8 +1,9 @@
 """Texto na tela da aula: legenda literal, tempo pelo áudio e desenho com Pillow.
 
 A legenda é o texto da cena, cortado só em fronteira de palavra: a junção dos trechos é
-idêntica ao texto. O tempo vem dos intervalos de fala detectados por ``silencedetect``;
-se eles não casam com as frases, o tempo da cena é dividido pelos caracteres. Legenda e
+idêntica ao texto. O tempo vem dos intervalos de fala detectados por ``silencedetect``: as
+palavras são distribuídas por eles e um trecho nunca atravessa uma pausa. Só cena sem fala
+detectada tem o tempo dividido pelos caracteres. Legenda e
 tópicos viram PNGs transparentes, aplicados depois com ``overlay`` (o FFmpeg local não tem
 ``drawtext`` nem ``ass``). A fonte é a Manrope Bold, sob a SIL Open Font License 1.1
 (``fonts/Manrope-OFL.txt``).
@@ -28,6 +29,12 @@ _SILENCE_END = re.compile(r"silence_end: (-?\d+(?:\.\d+)?)")
 SILENCE_NOISE = "-35dB"
 SILENCE_SECONDS = 0.25
 MIN_SPEECH_SECONDS = 0.05
+# O trecho fica na tela até o próximo começar ou este tempo depois da última palavra.
+SUBTITLE_HOLD_SECONDS = 0.5
+# Pontuação no fim da palavra: preferência para cortar a fala ali, maior em fim de frase.
+_PAUSE_MARK = re.compile(r"[,;:.!?…]+[\"'”’»)\]]*$")
+PUNCTUATION_BONUS = 0.1
+SENTENCE_BONUS = 0.3
 
 Box = tuple[int, int, int, int]
 
@@ -78,6 +85,7 @@ class Chunk:
     text: str
     lines: tuple[str, ...]
     sentence: int
+    words: int = 0
     start: float = 0.0
     end: float = 0.0
 
@@ -120,25 +128,35 @@ def _wrap(words: list[str], size: int, max_width: int) -> list[list[str]]:
     return lines
 
 
-def split_subtitles(text: str, aspect: str) -> list[Chunk]:
-    """Divide em frases pela pontuação e cada frase em trechos de até duas linhas."""
+def split_subtitles(text: str, aspect: str, groups: list[int] | None = None) -> list[Chunk]:
+    """Divide em frases pela pontuação e cada frase em trechos de até duas linhas.
+
+    ``groups`` dá o intervalo de fala de cada palavra; um trecho não junta palavras de
+    intervalos diferentes.
+    """
     layout = LAYOUTS[aspect]
     max_width = layout.subtitle_width - 2 * _padding(layout.subtitle_size)
-    sentences: list[list[str]] = [[]]
-    for word in _words(text):
-        sentences[-1].append(word)
-        if _SENTENCE_END.search(word.strip()):
-            sentences.append([])
+    words = _words(text)
+    groups = groups or [0] * len(words)
+    segments: list[tuple[int, list[str]]] = []
+    sentence, starts = 0, True
+    for index, word in enumerate(words):
+        if starts or groups[index] != groups[index - 1]:
+            segments.append((sentence, []))
+        segments[-1][1].append(word)
+        starts = bool(_SENTENCE_END.search(word.strip()))
+        sentence += starts
     chunks = []
-    for index, sentence in enumerate(s for s in sentences if s):
-        lines = _wrap(sentence, layout.subtitle_size, max_width)
+    for sentence, segment in segments:
+        lines = _wrap(segment, layout.subtitle_size, max_width)
         for first in range(0, len(lines), MAX_SUBTITLE_LINES):
             group = lines[first : first + MAX_SUBTITLE_LINES]
             chunks.append(
                 Chunk(
                     text="".join(word for line in group for word in line),
                     lines=tuple(" ".join(word.strip() for word in line) for line in group),
-                    sentence=index,
+                    sentence=sentence,
+                    words=sum(len(line) for line in group),
                 )
             )
     return chunks
@@ -173,28 +191,98 @@ def speech_intervals(
     return speech
 
 
-def _spread(chunks: list[Chunk], start: float, end: float) -> list[Chunk]:
-    weights = [max(1, len(chunk.text.strip())) for chunk in chunks]
-    total, cursor, timed = sum(weights), start, []
-    for chunk, weight in zip(chunks, weights, strict=True):
-        finish = cursor + (end - start) * weight / total
-        timed.append(replace(chunk, start=cursor, end=finish))
-        cursor = finish
-    return timed
+def _merge_speech(speech: list[tuple[float, float]], limit: int) -> list[tuple[float, float]]:
+    """Une os intervalos separados pelas menores pausas até sobrarem ``limit``."""
+    speech = list(speech)
+    while len(speech) > limit:
+        gap = min(range(len(speech) - 1), key=lambda i: speech[i + 1][0] - speech[i][1])
+        speech[gap : gap + 2] = [(speech[gap][0], speech[gap + 1][1])]
+    return speech
+
+
+def _cut_bonus(word: str) -> float:
+    word = word.strip()
+    if _SENTENCE_END.search(word):
+        return SENTENCE_BONUS
+    return PUNCTUATION_BONUS if _PAUSE_MARK.search(word) else 0.0
+
+
+def _group_words(
+    weights: list[int], bonuses: list[float], speech: list[tuple[float, float]]
+) -> list[int]:
+    """Intervalo de fala de cada palavra, em ordem e sem intervalo vazio.
+
+    Programação dinâmica: o custo de um grupo é a diferença entre sua parte dos caracteres
+    e a parte do tempo de fala do intervalo; cortar depois de pontuação dá bônus.
+    """
+    words, intervals = len(weights), len(speech)
+    prefix = [0]
+    for weight in weights:
+        prefix.append(prefix[-1] + weight)
+    talk = sum(end - start for start, end in speech)
+    shares = [(end - start) / talk for start, end in speech]
+    inf = float("inf")
+    cost = [[inf] * (words + 1) for _ in range(intervals + 1)]
+    back = [[0] * (words + 1) for _ in range(intervals + 1)]
+    cost[0][0] = 0.0
+    for j in range(1, intervals + 1):
+        for i in range(j, words - (intervals - j) + 1):
+            for p in range(j - 1, i):
+                if cost[j - 1][p] == inf:
+                    continue
+                value = cost[j - 1][p] + abs((prefix[i] - prefix[p]) / prefix[-1] - shares[j - 1])
+                if j < intervals:
+                    value -= bonuses[i - 1]
+                if value < cost[j][i]:
+                    cost[j][i], back[j][i] = value, p
+    groups, i = [0] * words, words
+    for j in range(intervals, 0, -1):
+        p = back[j][i]
+        groups[p:i] = [j - 1] * (i - p)
+        i = p
+    return groups
+
+
+def _word_times(
+    weights: list[int], groups: list[int], speech: list[tuple[float, float]]
+) -> list[tuple[float, float]]:
+    """Dentro do seu intervalo de fala, cada palavra tem tempo proporcional aos caracteres."""
+    times: list[tuple[float, float]] = []
+    for index, (start, end) in enumerate(speech):
+        members = [weight for weight, group in zip(weights, groups, strict=True) if group == index]
+        cursor, total = start, sum(members)
+        for weight in members:
+            finish = cursor + (end - start) * weight / total
+            times.append((cursor, finish))
+            cursor = finish
+    return times
 
 
 def time_chunks(
-    chunks: list[Chunk], speech: list[tuple[float, float]], duration: float
+    text: str, aspect: str, speech: list[tuple[float, float]], duration: float
 ) -> tuple[list[Chunk], str]:
-    """Tempo de cada trecho: pelo intervalo de fala da sua frase ou, sem casamento, pelos
-    caracteres na cena inteira. Devolve os trechos e o método usado."""
-    sentences = sorted({chunk.sentence for chunk in chunks})
-    if chunks and len(speech) == len(sentences):
-        timed = []
-        for sentence, (start, end) in zip(sentences, speech, strict=True):
-            timed += _spread([c for c in chunks if c.sentence == sentence], start, end)
-        return timed, "silence"
-    return _spread(chunks, 0.0, duration), "characters"
+    """Trechos da legenda com tempo pela fala; sem fala detectada, pelos caracteres na cena
+    inteira. Devolve os trechos e o método usado."""
+    words = _words(text)
+    weights = [max(1, len(word.strip())) for word in words]
+    if speech and words:
+        speech, method = _merge_speech(speech, len(words)), "silence"
+        groups = _group_words(weights, [_cut_bonus(word) for word in words], speech)
+    else:
+        speech, method = [(0.0, duration)], "characters"
+        groups = [0] * len(words)
+    times = _word_times(weights, groups, speech)
+    timed, first = [], 0
+    for chunk in split_subtitles(text, aspect, groups):
+        last = first + chunk.words - 1
+        timed.append(replace(chunk, start=times[first][0], end=times[last][1]))
+        first = last + 1
+    for index, chunk in enumerate(timed):
+        limit = timed[index + 1].start if index + 1 < len(timed) else duration
+        timed[index] = replace(
+            chunk, end=max(chunk.end, min(limit, chunk.end + SUBTITLE_HOLD_SECONDS))
+        )
+    return timed, method
 
 
 def detect_speech(

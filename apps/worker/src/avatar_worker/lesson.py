@@ -27,7 +27,6 @@ from avatar_worker.lesson_text import (
     detect_speech,
     draw_subtitle,
     draw_topics,
-    split_subtitles,
     time_chunks,
 )
 from avatar_worker.process import ProcessFailure, run_process
@@ -203,9 +202,7 @@ def _plan_scene(
         speech = detect_speech(path, duration, work, name, check, _no_gpu_env())
     except ProcessFailure as exc:
         raise _invalid(f"Não foi possível ler o áudio da cena {position}.") from exc
-    chunks, timing = time_chunks(
-        split_subtitles(scene.get("script_text", ""), aspect), speech, duration
-    )
+    chunks, timing = time_chunks(scene.get("script_text", ""), aspect, speech, duration)
     for index, chunk in enumerate(chunks):
         picture, x, y = draw_subtitle(chunk, aspect, background, accent)
         target = work / f"{name}-legenda-{index}.png"
