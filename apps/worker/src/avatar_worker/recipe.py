@@ -20,6 +20,21 @@ VOICES = ("feminina", "masculina")
 STATUSES = ("draft", "frozen")
 # Cada voz usa uma referência sintética própria do manifesto, nunca a voz padrão (DEC-004).
 VOICE_KINDS = ("reference",)
+CHATTERBOX_ENGINE = "chatterbox-multilingual"
+QWEN_ENGINE = "qwen3-tts-base"
+TTS_ENGINES = (CHATTERBOX_ENGINE, QWEN_ENGINE)
+# Componentes sem os quais o runtime do Qwen não carrega: código e pesos.
+QWEN_COMPONENTS = ("qwen-tts", "qwen3-tts-12hz-1.7b-base")
+# Sampler do talker do Qwen; o sub-talker repete temperatura, top-k e top-p.
+SAMPLER_FIELDS = (
+    "seed",
+    "temperature",
+    "top_p",
+    "top_k",
+    "repetition_penalty",
+    "repetition_window",
+    "max_new_tokens",
+)
 AVATAR_SIZES = ("infinitetalk-480", "infinitetalk-720")
 # Mesmas faixas de _COMPOSITION_RANGES em avatar_api.assets (geometria de canvas.compose_canvas).
 COMPOSITION_RANGES = {"scale": (0.3, 1.2), "x": (0.0, 1.0), "y": (0.5, 1.2)}
@@ -66,6 +81,8 @@ class Voice:
     kind: str
     path: str | None
     sha256: str | None
+    # Só no Qwen: texto falado na referência, igual a provenance.text do manifesto.
+    transcript: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +92,8 @@ class Tts:
     sample_rate: int
     components: tuple[str, ...]
     voices: Mapping[str, Voice]
+    # Só no Qwen: os campos de SAMPLER_FIELDS.
+    sampler: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -260,8 +279,17 @@ def _files(component: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _check_voices(check: _Checker, voices: dict[str, Any], derived: dict[str, Any]) -> None:
-    """Cada voz aponta para um arquivo derived do manifesto, e nenhuma repete a outra."""
+def _check_voices(
+    check: _Checker,
+    voices: dict[str, Any],
+    derived: dict[str, Any],
+    transcripts: dict[str, Any],
+    engine: Any,
+) -> None:
+    """Cada voz aponta para um arquivo derived do manifesto, e nenhuma repete a outra.
+
+    No Qwen a voz traz a transcrição da referência, igual à do manifesto; no Chatterbox, não.
+    """
     for name in VOICES:
         if name not in voices:
             check.add(f"tts.voices sem a voz {name}")
@@ -284,10 +312,38 @@ def _check_voices(check: _Checker, voices: dict[str, Any], derived: dict[str, An
             references.append((path, sha256))
             if derived.get(path) != sha256:
                 check.add(f"{label}: {path} com sha256 {sha256} não é arquivo derived do manifesto")
+        transcript = voice.get("transcript")
+        if engine == QWEN_ENGINE:
+            if not (isinstance(transcript, str) and transcript.strip()):
+                check.add(f"{label}.transcript precisa ser a transcrição da referência")
+            elif isinstance(path, str) and transcript != transcripts.get(path):
+                check.add(f"{label}.transcript diferente de provenance.text de {path} no manifesto")
+        elif "transcript" in voice:
+            check.add(f"{label}.transcript só vale na engine {QWEN_ENGINE}")
     paths = {path for path, _ in references}
     hashes = {sha256 for _, sha256 in references}
     if len(paths) < len(references) or len(hashes) < len(references):
         check.add("tts.voices precisam de referências distintas, com caminho e sha256 próprios")
+
+
+def _check_sampler(check: _Checker, tts: dict[str, Any]) -> None:
+    """Sampler do Qwen completo, sem campo extra e com valores que o generate aceita."""
+    sampler = check.section(tts, "sampler", "tts.sampler")
+    if not sampler:
+        return
+    for key in sorted(set(sampler) - set(SAMPLER_FIELDS)):
+        check.add(f"tts.sampler.{key} não é campo do sampler")
+    check.integer(sampler, "seed", "tts.sampler.seed", 0)
+    check.finite_positive(sampler, "temperature", "tts.sampler.temperature")
+    top_p = sampler.get("top_p")
+    if not (_is_number(top_p) and 0 < top_p <= 1):
+        check.add(f"tts.sampler.top_p precisa estar em (0, 1] (recebido {top_p!r})")
+    check.integer(sampler, "top_k", "tts.sampler.top_k")
+    penalty = sampler.get("repetition_penalty")
+    if not (_is_number(penalty) and math.isfinite(penalty) and penalty >= 1):
+        check.add(f"tts.sampler.repetition_penalty precisa ser número >= 1 (recebido {penalty!r})")
+    check.integer(sampler, "repetition_window", "tts.sampler.repetition_window")
+    check.integer(sampler, "max_new_tokens", "tts.sampler.max_new_tokens")
 
 
 def _check_lora(
@@ -437,18 +493,32 @@ def check_recipe(
     check.ids(cutout, "components", "cutout.components", kinds, weights_or_code)
 
     tts = check.section(raw, "tts", "tts")
-    check.text(tts, "engine", "tts.engine")
+    engine = tts.get("engine")
+    check.text(tts, "engine", "tts.engine", TTS_ENGINES)
     check.equals(tts, "language", "tts.language", "pt")
     check.equals(tts, "sample_rate", "tts.sample_rate", 24000)
     check.ids(tts, "components", "tts.components", kinds, weights_or_code)
+    if engine == QWEN_ENGINE:
+        listed = tts.get("components") if isinstance(tts.get("components"), list) else []
+        for component_id in QWEN_COMPONENTS:
+            if component_id not in listed:
+                check.add(f"tts.components sem {component_id}, exigido pela engine {QWEN_ENGINE}")
+        _check_sampler(check, tts)
+    elif "sampler" in tts:
+        check.add(f"tts.sampler só vale na engine {QWEN_ENGINE}")
     voices = check.section(tts, "voices", "tts.voices")
-    derived = {
-        f"{component_id}/{path}": sha256
+    derived_files = [
+        (f"{component_id}/{entry['path']}", entry)
         for component_id, component in components.items()
         if component.get("kind") == "derived"
-        for path, sha256 in _files(component).items()
+        for entry in (component.get("files") if isinstance(component.get("files"), list) else [])
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    ]
+    derived = {path: entry.get("sha256") for path, entry in derived_files}
+    transcripts = {
+        path: _dict(entry.get("provenance")).get("text") for path, entry in derived_files
     }
-    _check_voices(check, voices, derived)
+    _check_voices(check, voices, derived, transcripts, engine)
 
     avatar = check.section(raw, "avatar", "avatar")
     check.text(avatar, "engine", "avatar.engine")
@@ -535,7 +605,12 @@ def check_recipe(
 def _build(raw: dict[str, Any]) -> Recipe:
     tts, avatar, output, limits = raw["tts"], raw["avatar"], raw["output"], raw["limits"]
     voices = {
-        name: Voice(kind=voice["kind"], path=voice.get("path"), sha256=voice.get("sha256"))
+        name: Voice(
+            kind=voice["kind"],
+            path=voice.get("path"),
+            sha256=voice.get("sha256"),
+            transcript=voice.get("transcript"),
+        )
         for name, voice in tts["voices"].items()
     }
     return Recipe(
@@ -553,6 +628,7 @@ def _build(raw: dict[str, Any]) -> Recipe:
             sample_rate=tts["sample_rate"],
             components=tuple(tts["components"]),
             voices=MappingProxyType(voices),
+            sampler=_freeze(tts["sampler"]) if "sampler" in tts else None,
         ),
         avatar=Avatar(
             engine=avatar["engine"],

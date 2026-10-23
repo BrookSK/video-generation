@@ -277,6 +277,7 @@ def test_frozen_flag_applies_frozen_rules_to_draft():
         draft, MANIFEST, require_frozen=True
     )
 
+
 def test_empty_buckets_are_refused_before_loading(tmp_path):
     path = _write(tmp_path, _recipe(_set("avatar.buckets", {})))
 
@@ -316,3 +317,128 @@ def test_unreadable_files_are_reported(tmp_path, capsys):
     assert "não foi possível ler a receita" in capsys.readouterr().err
     assert main(["validate", str(RECIPE_PATH), "--manifest", str(broken)]) == 1
     assert "não foi possível ler o manifesto" in capsys.readouterr().err
+
+
+# Receita Qwen sobre o manifesto real, com uma segunda referência derived sintética para a voz
+# feminina; a masculina é a Faber do manifesto.
+FABER = "qwen-voice-references/faber.wav"
+FABER_ENTRY = next(
+    entry
+    for component in MANIFEST["components"]
+    if component["id"] == "qwen-voice-references"
+    for entry in component["files"]
+    if entry["path"] == "faber.wav"
+)
+FABER_TEXT = FABER_ENTRY["provenance"]["text"]
+SAMPLER = {
+    "seed": 20261015,
+    "temperature": 0.9,
+    "top_p": 1.0,
+    "top_k": 50,
+    "repetition_penalty": 1.5,
+    "repetition_window": 64,
+    "max_new_tokens": 512,
+}
+
+
+def _qwen_manifest():
+    manifest = copy.deepcopy(MANIFEST)
+    references = next(c for c in manifest["components"] if c["id"] == "qwen-voice-references")
+    second = copy.deepcopy(references["files"][0])
+    second.update(path="feminina-teste.wav", sha256="c" * 64)
+    second["provenance"]["text"] = "Transcrição sintética da referência feminina."
+    references["files"].append(second)
+    return manifest
+
+
+QWEN_MANIFEST = _qwen_manifest()
+
+
+def _qwen(recipe):
+    recipe["tts"] = {
+        "engine": "qwen3-tts-base",
+        "language": "pt",
+        "sample_rate": 24000,
+        "components": ["qwen-tts", "qwen3-tts-12hz-1.7b-base", "ohf-voice-pt-br"],
+        "sampler": copy.deepcopy(SAMPLER),
+        "voices": {
+            "feminina": {
+                "kind": "reference",
+                "path": "qwen-voice-references/feminina-teste.wav",
+                "sha256": "c" * 64,
+                "transcript": "Transcrição sintética da referência feminina.",
+            },
+            "masculina": {
+                "kind": "reference",
+                "path": FABER,
+                "sha256": FABER_ENTRY["sha256"],
+                "transcript": FABER_TEXT,
+            },
+        },
+    }
+
+
+def test_qwen_recipe_is_accepted_and_carries_sampler_and_transcript():
+    recipe = recipe_from_mapping(_recipe(_qwen), QWEN_MANIFEST)
+
+    assert recipe.tts.engine == "qwen3-tts-base"
+    assert dict(recipe.tts.sampler) == SAMPLER
+    assert recipe.tts.voices["masculina"].transcript == FABER_TEXT
+    assert recipe_from_mapping(_recipe(), MANIFEST).tts.sampler is None
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (_set("tts.engine", "kokoro"), "tts.engine 'kokoro' fora de chatterbox-multilingual"),
+        (_drop("tts.sampler.repetition_window"), "tts.sampler.repetition_window precisa ser"),
+        (_drop("tts.sampler"), "tts.sampler precisa ser um objeto"),
+        (_set("tts.sampler.top_p", 0), "tts.sampler.top_p precisa estar em (0, 1]"),
+        (_set("tts.sampler.repetition_penalty", 0.9), "repetition_penalty precisa ser número >= 1"),
+        (_set("tts.sampler.min_p", 0.1), "tts.sampler.min_p não é campo do sampler"),
+        (
+            _set("tts.voices.masculina.transcript", FABER_TEXT + " "),
+            f"tts.voices.masculina.transcript diferente de provenance.text de {FABER}",
+        ),
+        (
+            _drop("tts.voices.feminina.transcript"),
+            "tts.voices.feminina.transcript precisa ser a transcrição da referência",
+        ),
+        (
+            _set("tts.components", ["qwen-tts", "ohf-voice-pt-br"]),
+            "tts.components sem qwen3-tts-12hz-1.7b-base",
+        ),
+    ],
+    ids=[
+        "engine-desconhecida",
+        "campo-ausente",
+        "sem-sampler",
+        "top-p-zero",
+        "penalty-abaixo-de-1",
+        "campo-extra",
+        "transcricao-divergente",
+        "sem-transcricao",
+        "sem-pesos",
+    ],
+)
+def test_incoherent_qwen_recipe_is_refused(mutate, expected):
+    problems = check_recipe(_recipe(_qwen, mutate), QWEN_MANIFEST)
+
+    assert any(expected in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (_set("tts.sampler", copy.deepcopy(SAMPLER)), "tts.sampler só vale na engine"),
+        (
+            _set("tts.voices.feminina.transcript", "texto"),
+            "tts.voices.feminina.transcript só vale na engine",
+        ),
+    ],
+    ids=["sampler", "transcricao"],
+)
+def test_chatterbox_recipe_refuses_qwen_only_fields(mutate, expected):
+    problems = check_recipe(_recipe(mutate), MANIFEST)
+
+    assert any(expected in problem for problem in problems), problems
