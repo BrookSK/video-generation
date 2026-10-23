@@ -710,6 +710,27 @@
       ]
     },
     {
+      "id": "fleurs-pt-br",
+      "kind": "model",
+      "url": "https://huggingface.co/datasets/google/fleurs",
+      "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+      "code_license": "CC-BY-4.0",
+      "weights_license": "CC-BY-4.0",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/datasets/google/fleurs/blob/70bb2e84b976b7e960aa89f1c648e09c59f894dd/README.md"
+      ],
+      "attribution": "FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech. Alexis Conneau et al., Google, 2022. https://huggingface.co/datasets/google/fleurs. Licença CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Modificações: extração de um clipe do corpus, conversão para PCM16 mono 24 kHz e uso como referência para sintetizar falas novas. Não indica endosso do Google nem dos participantes.",
+      "files": [
+        {
+          "path": "data/pt_br/audio/train.tar.gz",
+          "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/pt_br/audio/train.tar.gz",
+          "sha256": "49c6a02a57576f99bd0e6e51aacebfdea9a0bd2cee146e5d20cdceac56e9be9e",
+          "size": 1805414677
+        }
+      ]
+    },
+    {
       "id": "qwen-voice-references",
       "kind": "derived",
       "code_license": "CC0-1.0",
@@ -746,6 +767,54 @@
               "platform": "darwin-arm64"
             },
             "approved_use": "Referência da voz masculina aprovada pelo usuário em 21/10/2026 (vídeo do Rafael, docs/homologacao/P06-ROTEIRO-RAFAEL.md)."
+          }
+        }
+      ]
+    },
+    {
+      "id": "fleurs-voice-references",
+      "kind": "derived",
+      "code_license": "CC-BY-4.0",
+      "weights_license": "CC-BY-4.0",
+      "commercial_use": true,
+      "license_evidence": [
+        "https://huggingface.co/datasets/google/fleurs/blob/70bb2e84b976b7e960aa89f1c648e09c59f894dd/README.md"
+      ],
+      "attribution": "FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech. Alexis Conneau et al., Google, 2022. https://huggingface.co/datasets/google/fleurs. Licença CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Modificações: extração de um clipe do corpus, conversão para PCM16 mono 24 kHz e uso como referência para sintetizar falas novas. Não indica endosso do Google nem dos participantes.",
+      "derived_from": [
+        "fleurs-pt-br"
+      ],
+      "files": [
+        {
+          "path": "marina.wav",
+          "sha256": "48febb72a3a1d1a4b636fe5f443fd4cc4f5943842f70d22c5d71d816e8b76630",
+          "size": 374478,
+          "provenance": {
+            "source": "fleurs-pt-br/data/pt_br/audio/train.tar.gz",
+            "member": "train/10162606862501059472.wav",
+            "member_sha256": "e9176f5f87635fe0dfc57795f92d15f3c57c5831b2c83ab80305f9edfa10a886",
+            "member_size": 499258,
+            "sample_id": "563",
+            "gender_metadata": "FEMALE",
+            "text": "Se você se machucar enquanto tenta ajudar, você só vai servir para piorar a situação.",
+            "text_status": "Transcrição primária do FLEURS (data/pt_br/train.tsv, item 563).",
+            "human_recording": true,
+            "parameters": {
+              "steps": [
+                "tar -xzf train.tar.gz train/10162606862501059472.wav",
+                "ffmpeg -i 10162606862501059472.wav -ac 1 -ar 24000 -c:a pcm_s16le marina.wav"
+              ],
+              "source_format": "pcm_f32le mono 16 kHz",
+              "sample_rate": 24000,
+              "channels": 1,
+              "pcm": "s16le",
+              "samples": 187200,
+              "gain": null,
+              "trim": null,
+              "platform": "darwin-arm64",
+              "reproduced_with": "FFmpeg 9.0.2 em 22/10/2026, bytes idênticos"
+            },
+            "approved_use": "Voz feminina escolhida pelo Felipe em 22/10/2026 (candidata Marina C de 16/10, p06-novos-avatares-20261016). Aceite final na escuta do piloto."
           }
         }
       ]
