@@ -293,6 +293,27 @@ excluídos após a cópia; o volume original permaneceu detached.
 DEC-005 autoriza os seis materiais existentes; domínio HTTPS público, túnel
 definitivo restrito e aceite permanecem requisitos das etapas seguintes.
 
+### Piloto Qwen da RECIPE-v2 (2026-10-23)
+
+A imagem de `9fbb7cf` foi publicada no registro privado temporário da homologação
+(`127.0.0.1:5000/avatar-worker@sha256:5de026def83a0662421a7ab73acd41588831b6c4b2d8661df418a779537b82a2`)
+e rodou numa A100-SXM4-80GB da Verda (FIN-01), Ubuntu 26.04 com driver 580. O túnel
+SSH único entregava 3 MB/s; os blobs foram copiados em blocos paralelos, conferidos
+pelo SHA-256 do nome e servidos por um registro temporário na própria VM, com pull por
+digest no mesmo endereço. O `gpu-host-check.sh` só acusou o Ubuntu 26.04.
+
+- Pesos: 43 arquivos baixados e conferidos; a segunda rodada, dentro da imagem e sem
+  rede, terminou com `0 baixado(s), 43 já presente(s)`.
+- TTS Qwen, 6 cenas do roteiro nas vozes Faber e Marina: 12 de 12 com EOS, 8,4 a
+  11,12 s de áudio, `watermark_detected` nulo, pico de 4,6 GB, 32 a 52 s cada.
+- 9:16 (Marina, 26,8 s), frio e quente: 107,864 e 107,065 s de computação por
+  segundo de vídeo; avatar em 2787 e 2764 s, pico de 49.350 MiB.
+- 16:9 (Faber, 27,04 s), só frio: 119,194 s/s; avatar em 3104 s, pico de 50.848 MiB.
+
+Cada rodada de cerca de 27 s levou de 48 a 55 min, e as quatro não couberam nas 3,5 h
+aprovadas. A `RECIPE-v2` segue `draft`: faltam a rodada quente do 16:9 e o veredito
+do Felipe.
+
 ### Perfil da receita draft
 
 `docs/models/RECIPE-v1.json` continua `draft`, com o perfil
