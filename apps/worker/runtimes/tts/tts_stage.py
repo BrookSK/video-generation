@@ -2,8 +2,10 @@
 
 Uso: python tts_stage.py <request.json> <result.json>
 
-Roda com o Python do runtime isolado. O topo só importa a biblioteca padrão; torch,
-chatterbox e perth entram dentro das funções.
+request.engine escolhe a engine: chatterbox-multilingual (padrão, runtime runtimes/tts) ou
+qwen3-tts-base (runtime runtimes/qwen-tts). O mesmo arquivo roda com o Python de cada runtime:
+o topo só importa a biblioteca padrão; torch, chatterbox, perth e qwen_tts entram dentro das
+funções.
 """
 
 import hashlib
@@ -21,6 +23,29 @@ from typing import Any
 SAMPLE_RATE = 24000
 VOICE_KINDS = ("default", "reference")
 OFFLINE_ENV = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+CHATTERBOX_ENGINE = "chatterbox-multilingual"
+QWEN_ENGINE = "qwen3-tts-base"
+ENGINES = (CHATTERBOX_ENGINE, QWEN_ENGINE)
+
+# Pesos do Qwen3-TTS em /models/<componente>/, com os nomes do repositório no manifesto.
+QWEN_COMPONENT = "qwen3-tts-12hz-1.7b-base"
+QWEN_FILES = (
+    "config.json",
+    "generation_config.json",
+    "merges.txt",
+    "model.safetensors",
+    "preprocessor_config.json",
+    "tokenizer_config.json",
+    "vocab.json",
+    "speech_tokenizer/config.json",
+    "speech_tokenizer/configuration.json",
+    "speech_tokenizer/model.safetensors",
+    "speech_tokenizer/preprocessor_config.json",
+)
+QWEN_LANGUAGES = {"pt": "Portuguese"}
+# Inteiros e números do sampler do talker; o sub-talker repete temperatura, top-k e top-p.
+SAMPLER_INTS = ("seed", "top_k", "repetition_window", "max_new_tokens")
+SAMPLER_NUMBERS = ("temperature", "top_p", "repetition_penalty")
 
 # O from_local da 0.1.7 lê nomes fixos num único diretório. O checkpoint pt-BR usa outros
 # nomes e o resto vem do repositório base, por isso cada nome esperado aponta para
@@ -52,7 +77,7 @@ class Synthesis:
     peak_vram_mb: float
 
 
-Synthesizer = Callable[[str, str, Path | None, Path], Synthesis]
+Synthesizer = Callable[..., Synthesis]
 WatermarkDetector = Callable[[Path], bool]
 
 
@@ -70,7 +95,33 @@ def read_request(path: Path) -> dict[str, Any]:
     voice = request.get("voice")
     if not isinstance(voice, dict) or voice.get("kind") not in VOICE_KINDS:
         raise StageError(f"request.voice.kind precisa ser um de {', '.join(VOICE_KINDS)}")
+    engine = request.get("engine", CHATTERBOX_ENGINE)
+    if engine not in ENGINES:
+        raise StageError(f"request.engine precisa ser um de {', '.join(ENGINES)}")
+    if engine == QWEN_ENGINE:
+        read_qwen_request(request)
     return request
+
+
+def read_qwen_request(request: dict[str, Any]) -> None:
+    """O Base clona uma referência: exige transcrição, idioma conhecido e sampler completo."""
+    voice = request["voice"]
+    if voice["kind"] != "reference":
+        raise StageError("o Qwen Base não tem voz padrão: request.voice.kind precisa ser reference")
+    transcript = voice.get("transcript")
+    if not isinstance(transcript, str) or not transcript.strip():
+        raise StageError("request.voice.transcript precisa ser a transcrição da referência")
+    if request["language"] not in QWEN_LANGUAGES:
+        raise StageError(f"idioma {request['language']!r} sem nome no Qwen")
+    sampler = request.get("sampler")
+    fields = (*SAMPLER_INTS, *SAMPLER_NUMBERS)
+    if not isinstance(sampler, dict) or set(sampler) != set(fields):
+        raise StageError(f"request.sampler precisa ter exatamente {', '.join(fields)}")
+    for key in fields:
+        value = sampler[key]
+        kinds = int if key in SAMPLER_INTS else (int, float)
+        if isinstance(value, bool) or not isinstance(value, kinds) or value < 0:
+            raise StageError(f"request.sampler.{key} inválido: {value!r}")
 
 
 def sha256_file(path: Path) -> str:
@@ -205,6 +256,107 @@ def chatterbox_synthesize(
     return Synthesis(pcm16=pcm16, sample_rate=model.sr, peak_vram_mb=round(peak, 1))
 
 
+class WindowedRepetitionPenalty:
+    """Repetition penalty do mlx-audio 0.5.9 sobre os últimos window tokens gerados.
+
+    O Transformers aplica a penalty sobre a sequência inteira; o MLX da voz aprovada olha só
+    os últimos 64 tokens do talker. Logit negativo é multiplicado e positivo é dividido pela
+    penalty, uma vez por token distinto. Funciona com tensores do torch e arrays do numpy.
+    """
+
+    def __init__(self, penalty: float, window: int):
+        self.penalty = penalty
+        self.window = window
+
+    def __call__(self, input_ids: Any, scores: Any) -> Any:
+        for row in range(scores.shape[0]):
+            recent = input_ids[row, max(0, input_ids.shape[1] - self.window) :].tolist()
+            if not recent:
+                continue
+            ids = sorted(set(recent))
+            selected = scores[row, ids]
+            negative = selected < 0
+            selected[negative] *= self.penalty
+            selected[~negative] /= self.penalty
+            scores[row, ids] = selected
+        return scores
+
+
+def qwen_synthesize(
+    text: str,
+    language: str,
+    voice: Path,
+    models_dir: Path,
+    transcript: str,
+    sampler: dict[str, Any],
+) -> Synthesis:
+    """Clona a referência no modo ICL com o sampler da receita; exige EOS do talker."""
+    import numpy as np
+    import torch
+    from qwen_tts import Qwen3TTSModel
+    from transformers import LogitsProcessorList
+
+    model_dir = models_dir / QWEN_COMPONENT
+    for name in QWEN_FILES:
+        if not (model_dir / name).is_file():
+            raise StageError(f"peso do Qwen ausente: {model_dir / name}")
+    cuda = torch.cuda.is_available()
+    tts = Qwen3TTSModel.from_pretrained(
+        str(model_dir),
+        device_map="cuda:0" if cuda else "cpu",
+        dtype=torch.bfloat16 if cuda else torch.float32,
+        attn_implementation="sdpa",
+        local_files_only=True,
+    )
+    talker = tts.model.talker
+    eos_token = tts.model.config.talker_config.codec_eos_token_id
+    generate = talker.generate
+    penalty = WindowedRepetitionPenalty(sampler["repetition_penalty"], sampler["repetition_window"])
+
+    def require_completion(*args: Any, **kwargs: Any) -> Any:
+        # A penalty nativa sai (1.0) e a com janela entra antes de temperatura, top-k e top-p.
+        kwargs["repetition_penalty"] = 1.0
+        kwargs["logits_processor"] = LogitsProcessorList([penalty])
+        result = generate(*args, **kwargs)
+        sequences = result.sequences
+        if sequences.ndim != 2 or sequences.shape[0] != 1 or sequences.shape[1] == 0:
+            raise StageError("talker retornou tokens fora do formato [1, N] não vazio")
+        if sequences[0, -1].item() != eos_token:
+            raise StageError(
+                "talker terminou sem EOS dentro de max_new_tokens; fala incompleta não será "
+                "publicada"
+            )
+        return result
+
+    if cuda:
+        torch.cuda.reset_peak_memory_stats()
+    torch.manual_seed(sampler["seed"])
+    talker.generate = require_completion
+    try:
+        wavs, sample_rate = tts.generate_voice_clone(
+            text=text,
+            language=QWEN_LANGUAGES[language],
+            ref_audio=str(voice),
+            ref_text=transcript,
+            do_sample=True,
+            temperature=sampler["temperature"],
+            top_k=sampler["top_k"],
+            top_p=sampler["top_p"],
+            repetition_penalty=1.0,
+            subtalker_dosample=True,
+            subtalker_temperature=sampler["temperature"],
+            subtalker_top_k=sampler["top_k"],
+            subtalker_top_p=sampler["top_p"],
+            max_new_tokens=sampler["max_new_tokens"],
+        )
+    finally:
+        del talker.generate
+    peak = torch.cuda.max_memory_allocated() / 2**20 if cuda else 0.0
+    (wav,) = wavs
+    pcm16 = (np.clip(np.asarray(wav, dtype=np.float32), -1.0, 1.0) * 32767).astype(np.int16)
+    return Synthesis(pcm16=pcm16.tobytes(), sample_rate=sample_rate, peak_vram_mb=round(peak, 1))
+
+
 def perth_detect(wav_path: Path) -> bool:
     import librosa
     import perth
@@ -216,24 +368,40 @@ def perth_detect(wav_path: Path) -> bool:
 def run(
     request_path: Path,
     result_path: Path,
-    synthesize: Synthesizer = chatterbox_synthesize,
+    synthesize: Synthesizer | None = None,
     detect_watermark: WatermarkDetector = perth_detect,
 ) -> dict[str, Any]:
+    """synthesize None usa o sintetizador real da engine do pedido."""
     started = time.monotonic()
     for name in OFFLINE_ENV:
         os.environ[name] = "1"
     request = read_request(request_path)
+    engine = request.get("engine", CHATTERBOX_ENGINE)
     models_dir = Path(request["models_dir"])
     voice = resolve_voice(request["voice"], models_dir)
-    synthesis = synthesize(request["text"], request["language"], voice, models_dir)
+    if engine == QWEN_ENGINE:
+        synthesis = (synthesize or qwen_synthesize)(
+            request["text"],
+            request["language"],
+            voice,
+            models_dir,
+            transcript=request["voice"]["transcript"],
+            sampler=request["sampler"],
+        )
+    else:
+        synthesis = (synthesize or chatterbox_synthesize)(
+            request["text"], request["language"], voice, models_dir
+        )
     out_wav = Path(request["out_wav"])
     duration = write_wav(out_wav, synthesis)
+    # O Qwen não aplica watermark: nulo diz "não se aplica", e o WAV não é alterado (C7).
+    watermark = None if engine == QWEN_ENGINE else bool(detect_watermark(out_wav))
     result = {
         "audio_path": str(out_wav),
         "duration_s": round(duration, 3),
         "sample_rate": synthesis.sample_rate,
         "peak_vram_mb": synthesis.peak_vram_mb,
-        "watermark_detected": bool(detect_watermark(out_wav)),
+        "watermark_detected": watermark,
         "elapsed_s": round(time.monotonic() - started, 3),
     }
     result_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -242,7 +410,7 @@ def run(
 
 def main(
     argv: list[str] | None = None,
-    synthesize: Synthesizer = chatterbox_synthesize,
+    synthesize: Synthesizer | None = None,
     detect_watermark: WatermarkDetector = perth_detect,
 ) -> int:
     args = sys.argv[1:] if argv is None else argv
