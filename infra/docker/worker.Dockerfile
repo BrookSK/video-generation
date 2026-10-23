@@ -67,7 +67,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_NO_CACHE=1 \
     UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
-# Pythons gerenciados pelo uv: 3.12 para o worker e o TTS, 3.10 para o InfiniteTalk.
+# Pythons gerenciados pelo uv: 3.12 para o worker e os dois TTS, 3.10 para o InfiniteTalk.
 RUN uv python install 3.12.13 3.10.20
 
 ENV UV_PYTHON_DOWNLOADS=never \
@@ -88,6 +88,11 @@ RUN uv sync --frozen --no-dev --directory runtimes/tts
 # Confere hashes da base antes de retirar analisador/hooks e código morto.
 COPY infra/docker/patch_chatterbox.py infra/docker/chatterbox-v3-policy.patch /app/infra/docker/
 RUN runtimes/tts/.venv/bin/python /app/infra/docker/patch_chatterbox.py
+
+# Qwen3-TTS em runtime próprio: o qwen-tts exige transformers 4.57.3 e o Chatterbox usa 5.2.0.
+# O mesmo runtimes/tts/tts_stage.py roda com este Python quando a receita pede qwen3-tts-base.
+COPY apps/worker/runtimes/qwen-tts/pyproject.toml apps/worker/runtimes/qwen-tts/uv.lock ./runtimes/qwen-tts/
+RUN uv sync --frozen --no-dev --directory runtimes/qwen-tts
 
 COPY apps/worker/runtimes/avatar/pyproject.toml apps/worker/runtimes/avatar/uv.lock ./runtimes/avatar/
 RUN uv sync --frozen --no-dev --directory runtimes/avatar
