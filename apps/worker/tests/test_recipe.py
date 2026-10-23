@@ -442,3 +442,27 @@ def test_chatterbox_recipe_refuses_qwen_only_fields(mutate, expected):
     problems = check_recipe(_recipe(mutate), MANIFEST)
 
     assert any(expected in problem for problem in problems), problems
+
+
+def test_qwen_recipe_with_real_marina_and_faber_references_is_valid():
+    marina = next(
+        entry
+        for component in MANIFEST["components"]
+        if component["id"] == "fleurs-voice-references"
+        for entry in component["files"]
+        if entry["path"] == "marina.wav"
+    )
+
+    def real_voices(recipe):
+        _qwen(recipe)
+        recipe["tts"]["components"].append("fleurs-pt-br")
+        recipe["tts"]["voices"]["feminina"] = {
+            "kind": "reference",
+            "path": "fleurs-voice-references/marina.wav",
+            "sha256": marina["sha256"],
+            "transcript": marina["provenance"]["text"],
+        }
+
+    recipe = recipe_from_mapping(_recipe(real_voices), MANIFEST)
+
+    assert recipe.tts.voices["feminina"].transcript == marina["provenance"]["text"]
