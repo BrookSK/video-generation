@@ -311,7 +311,9 @@ digest no mesmo endereço. O `gpu-host-check.sh` só acusou o Ubuntu 26.04.
 - 16:9 (Faber, 27,04 s), só frio: 119,194 s/s; avatar em 3104 s, pico de 50.848 MiB.
 
 Cada rodada de cerca de 27 s levou de 48 a 55 min, e as quatro não couberam nas 3,5 h
-aprovadas. A `RECIPE-v2` segue `draft`: faltam a rodada quente do 16:9 e o veredito
+aprovadas. A sessão do console expirou antes da exclusão manual; a Verda excluiu a
+instância às 08:40 UTC, ao esgotar o saldo, e o volume foi para a lixeira (96 h).
+Custo da janela: US$ 9,17. Conferir o login do console antes do fim do prazo da VM. A `RECIPE-v2` segue `draft`: faltam a rodada quente do 16:9 e o veredito
 do Felipe.
 
 ### Perfil da receita draft
