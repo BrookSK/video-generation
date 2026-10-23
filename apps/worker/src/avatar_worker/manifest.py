@@ -13,8 +13,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 # CC0-1.0: gravações humanas em domínio público usadas como referência de voz.
-ALLOWED_LICENSES = frozenset(
-    name.casefold() for name in ("Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0")
+# CC-BY-4.0 permite uso comercial com atribuição: o componente precisa registrar o texto dela.
+ATTRIBUTION_LICENSES = frozenset({"cc-by-4.0"})
+ALLOWED_LICENSES = (
+    frozenset(
+        name.casefold() for name in ("Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0")
+    )
+    | ATTRIBUTION_LICENSES
 )
 FORBIDDEN_TERMS = ("bria-rmbg", "insightface")
 # derived: arquivos gerados localmente a partir de outros componentes; o pull não os baixa.
@@ -182,6 +187,12 @@ def _check_component(index: int, component: Any, components: dict[str, Any]) -> 
             f"{label}: weights_license {component.get('weights_license')!r} não é permitida"
         )
     violations += _check_license_evidence(label, component.get("license_evidence"))
+    licenses = (component.get("code_license"), component.get("weights_license"))
+    attribution = component.get("attribution")
+    if any(
+        isinstance(name, str) and name.casefold() in ATTRIBUTION_LICENSES for name in licenses
+    ) and not (isinstance(attribution, str) and attribution.strip()):
+        violations.append(f"{label}: licença com atribuição exige o campo attribution")
     if kind in ("model", "code") and not (
         isinstance(revision, str) and _COMMIT.fullmatch(revision)
     ):

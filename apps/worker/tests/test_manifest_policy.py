@@ -421,3 +421,24 @@ def test_converted_reference_refusals_are_named(mutate, expected):
     violations = check_policy(_with_recording(mutate))
 
     assert any(expected in violation for violation in violations), violations
+
+
+def _cc_by(components):
+    for component in components.values():
+        if component["id"] in ("gravacao-de-teste", "referencias-convertidas"):
+            component.update(code_license="CC-BY-4.0", weights_license="CC-BY-4.0")
+            component["attribution"] = "Corpus de teste, Autora et al., 2022."
+
+
+def test_cc_by_recording_with_attribution_is_accepted():
+    assert check_policy(_with_recording(_cc_by)) == []
+
+
+def test_cc_by_without_attribution_is_refused():
+    def mutate(components):
+        _cc_by(components)
+        del components["referencias-convertidas"]["attribution"]
+
+    assert check_policy(_with_recording(mutate)) == [
+        "referencias-convertidas: licença com atribuição exige o campo attribution"
+    ]
