@@ -313,8 +313,13 @@ digest no mesmo endereço. O `gpu-host-check.sh` só acusou o Ubuntu 26.04.
 Cada rodada de cerca de 27 s levou de 48 a 55 min, e as quatro não couberam nas 3,5 h
 aprovadas. A sessão do console expirou antes da exclusão manual; a Verda excluiu a
 instância às 08:40 UTC, ao esgotar o saldo, e o volume foi para a lixeira (96 h).
-Custo da janela: US$ 9,17. Conferir o login do console antes do fim do prazo da VM. A `RECIPE-v2` segue `draft`: faltam a rodada quente do 16:9 e o veredito
-do Felipe.
+Custo da janela: US$ 9,17. Conferir o login do console antes do fim do prazo da VM.
+
+Na escuta de 23/10, o Felipe aprovou as duas vozes, Faber e Marina: "A voz ficou boa,
+só que o vídeo não ficou tão bom. Eu imagino que não seja o intuito. O intuito é ver a
+voz." Sobre a Marina, apontou que dá para melhorar um pouco (cena 5). A qualidade do
+vídeo do piloto não foi aprovada e fica fora do aceite desta receita, que cobre a voz.
+A `RECIPE-v2` segue `draft`: falta a rodada quente do 16:9, depois da recarga da Verda.
 
 ### Perfil da receita draft
 
