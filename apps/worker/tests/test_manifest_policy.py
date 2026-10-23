@@ -340,3 +340,84 @@ def test_unreadable_manifest_exits_1(tmp_path, capsys):
 
     assert main(["verify", "--policy", str(path)]) == 1
     assert "não foi possível ler" in capsys.readouterr().err
+
+
+# Gravação humana CC0 e a referência PCM16 convertida dela; hashes e textos sintéticos.
+RECORDING = {
+    "id": "gravacao-de-teste",
+    "kind": "model",
+    "url": "https://github.com/OHF-Voice/voice-datasets",
+    "revision": COMMIT,
+    "code_license": "CC0-1.0",
+    "weights_license": "CC0-1.0",
+    "commercial_use": True,
+    "license_evidence": ["https://github.com/OHF-Voice/voice-datasets/blob/x/README.md"],
+    "files": [
+        {
+            "path": "pt_BR/locutor/0000000001.mp3",
+            "url": "https://raw.githubusercontent.com/OHF-Voice/voice-datasets/x/0000000001.mp3",
+            "sha256": SHA256,
+            "size": 512,
+        }
+    ],
+}
+CONVERTED = {
+    "id": "referencias-convertidas",
+    "kind": "derived",
+    "code_license": "CC0-1.0",
+    "weights_license": "CC0-1.0",
+    "commercial_use": True,
+    "license_evidence": ["https://github.com/OHF-Voice/voice-datasets/blob/x/README.md"],
+    "derived_from": ["gravacao-de-teste"],
+    "files": [
+        {
+            "path": "locutor.wav",
+            "sha256": SHA256,
+            "size": 1024,
+            "provenance": {
+                "source": "gravacao-de-teste/pt_BR/locutor/0000000001.mp3",
+                "text": "Transcrição da gravação de referência.",
+                "parameters": {"sample_rate": 24000, "pcm": "s16le"},
+            },
+        }
+    ],
+}
+
+
+def _with_recording(mutate=None):
+    manifest = _manifest()
+    manifest["components"] += [copy.deepcopy(RECORDING), copy.deepcopy(CONVERTED)]
+    if mutate:
+        mutate({component["id"]: component for component in manifest["components"]})
+    return manifest
+
+
+def test_cc0_recording_and_reference_converted_from_it_are_accepted():
+    assert check_policy(_with_recording()) == []
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (
+            lambda c: c["gravacao-de-teste"].update(weights_license="CC-BY-NC-4.0"),
+            "gravacao-de-teste: weights_license 'CC-BY-NC-4.0' não é permitida",
+        ),
+        (
+            lambda c: c["referencias-convertidas"]["files"][0]["provenance"].update(
+                source="gravacao-de-teste/pt_BR/outro/0000000002.mp3"
+            ),
+            "provenance.source 'gravacao-de-teste/pt_BR/outro/0000000002.mp3' não é arquivo "
+            "de derived_from",
+        ),
+        (
+            lambda c: c["referencias-convertidas"]["files"][0]["provenance"].pop("source"),
+            "provenance.model None não é arquivo de derived_from",
+        ),
+    ],
+    ids=["gravacao-nao-comercial", "origem-fora-da-gravacao", "sem-origem-citada"],
+)
+def test_converted_reference_refusals_are_named(mutate, expected):
+    violations = check_policy(_with_recording(mutate))
+
+    assert any(expected in violation for violation in violations), violations

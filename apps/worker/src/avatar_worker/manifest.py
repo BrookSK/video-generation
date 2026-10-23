@@ -12,8 +12,9 @@ from collections.abc import Collection
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+# CC0-1.0: gravações humanas em domínio público usadas como referência de voz.
 ALLOWED_LICENSES = frozenset(
-    name.casefold() for name in ("Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause")
+    name.casefold() for name in ("Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0")
 )
 FORBIDDEN_TERMS = ("bria-rmbg", "insightface")
 # derived: arquivos gerados localmente a partir de outros componentes; o pull não os baixa.
@@ -111,7 +112,10 @@ def _check_local_file(
     provenance = entry.get("provenance")
     if not isinstance(provenance, dict):
         return [*violations, f"{file_label} sem provenance"]
-    for key in ("model", "preset"):
+    # Origem citada por arquivo: source para um derivado de gravação (referência de voz
+    # convertida), model e preset para um derivado gerado por modelo (Kokoro).
+    keys = ("source",) if "source" in provenance else ("model", "preset")
+    for key in keys:
         reference = provenance.get(key)
         if not (isinstance(reference, str) and reference in sources):
             violations.append(
