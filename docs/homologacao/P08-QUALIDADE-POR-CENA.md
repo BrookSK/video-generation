@@ -71,6 +71,13 @@ A dissolução de 0,4 s entre cenas (commit `ed96ba2`) foi conferida nos quadros
 abertura para a cena 2: o quadro do meio mistura as duas cenas e o seguinte é limpo. Áudio e
 duração não mudam (62,72 s nas duas aulas).
 
+No deploy da homologação, a dissolução falhou no FFmpeg 7.1 da imagem: depois do `overlay` a cena
+chega ao `xfade` sem taxa de quadros, e ele recusa. O FFmpeg 9 do Mac aceitava, por isso os testes
+locais passaram. O worker voltou ao `babb9b1` em seguida, sem nenhuma aula afetada. A correção
+(`e9a060b`) fixa `fps=25` na saída de cada cena; reproduzida antes e depois no container da VPS e
+conferida no servidor com uma montagem de duas cenas, uma delas com imagem (16,24 s). A VPS roda
+`e9a060b`, `readyz` ok, com cópia de rollback em `/srv/avatar/app-babb9b1`.
+
 ## Arquivos
 
 Ficam só no pacote privado, fora do repositório:
