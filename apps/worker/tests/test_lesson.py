@@ -5,11 +5,12 @@ import re
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
 from avatar_worker.finalize import probe_output
-from avatar_worker.lesson import CARD_SECONDS, assemble_lesson, draw_card
+from avatar_worker.lesson import CARD_SECONDS, TRANSITION_SECONDS, assemble_lesson, draw_card
 from avatar_worker.lesson_text import LAYOUTS
 from avatar_worker.video import GenerationFailure
 
@@ -27,12 +28,14 @@ def _hex(rgb: tuple[int, int, int]) -> str:
     return "0x{:02X}{:02X}{:02X}".format(*rgb)
 
 
-def make_scene(path: Path, rgb: tuple[int, int, int], seconds: float, size: str) -> Path:
+def make_scene(
+    path: Path, rgb: tuple[int, int, int], seconds: float, size: str, tone: int = 440
+) -> Path:
     subprocess.run(
         [
             "ffmpeg", "-nostdin", "-v", "error", "-y",
             "-f", "lavfi", "-i", f"color=c={_hex(rgb)}:s={size}:r=25:d={seconds}",
-            "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={seconds}",
+            "-f", "lavfi", "-i", f"sine=frequency={tone}:sample_rate=48000:duration={seconds}",
             "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-ar", "48000", "-movflags", "+faststart", str(path),
         ],
@@ -125,6 +128,69 @@ def test_aula_16x9_tem_perfil_duracao_abertura_ordem_e_encerramento(tmp_path, lo
         (2, "close"),
         (3, "medio"),
     ]
+
+
+def dominant_tone(video: Path, start: float, seconds: float) -> float:
+    """Frequência dominante do áudio da aula em [start, start + seconds]."""
+    raw = subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{seconds:.3f}",
+            "-i", str(video), "-ac", "1", "-ar", "48000", "-f", "s16le", "-",
+        ],
+        check=True, capture_output=True,
+    ).stdout  # fmt: skip
+    samples = np.frombuffer(raw, dtype="<i2").astype(float)
+    spectrum = np.abs(np.fft.rfft(samples * np.hanning(len(samples))))
+    return float(np.fft.rfftfreq(len(samples), 1 / 48000)[spectrum.argmax()])
+
+
+def test_passagem_entre_cenas_dissolve_sem_mexer_no_audio(tmp_path, logo):
+    tones = {1: 440, 2: 880, 3: 1320}
+    scenes = {
+        position: make_scene(
+            tmp_path / f"cena-{position}.mp4", color, seconds, "1920x1080", tones[position]
+        )
+        for position, _, color, seconds in SCENES
+    }
+
+    final = assemble_lesson(payload(), scenes, logo, tmp_path / "work", lambda: None).files[
+        "final.mp4"
+    ]
+
+    boundary = CARD_SECONDS
+    for (_, _, before, seconds), (position, _, after, _) in zip(SCENES, SCENES[1:], strict=False):
+        boundary += seconds
+        middle = frame_at(final, boundary + TRANSITION_SECONDS / 2, tmp_path / "meio.png")
+        pixel = middle.getpixel((960, 540))
+        assert not near(pixel, before) and not near(pixel, after), position
+        assert all(
+            min(b, a) - 14 <= p <= max(b, a) + 14
+            for p, b, a in zip(pixel, before, after, strict=True)
+        )
+        done = frame_at(final, boundary + TRANSITION_SECONDS + 0.06, tmp_path / "depois.png")
+        assert near(done.getpixel((960, 540)), after), position
+        assert abs(dominant_tone(final, boundary + 0.02, 0.15) - tones[position]) < 30
+        assert abs(dominant_tone(final, boundary - 0.17, 0.15) - tones[position - 1]) < 30
+    profile = probe_output(final)
+    expected = 2 * CARD_SECONDS + sum(seconds for *_, seconds in SCENES)
+    assert abs(profile["video_duration"] - expected) <= (len(SCENES) + 1) / 25
+
+
+def test_cena_curta_dissolve_em_metade_dela(tmp_path, logo):
+    red, green = (220, 40, 40), (40, 200, 60)
+    scenes = {
+        1: make_scene(tmp_path / "cena-1.mp4", red, 1.0, "1920x1080"),
+        2: make_scene(tmp_path / "cena-2.mp4", green, 0.5, "1920x1080"),
+    }
+    short = payload()
+    short["scenes"] = short["scenes"][1:]
+
+    final = assemble_lesson(short, scenes, logo, tmp_path / "work", lambda: None).files["final.mp4"]
+
+    boundary = CARD_SECONDS + 1.0
+    middle = frame_at(final, boundary + 0.1, tmp_path / "meio.png").getpixel((960, 540))
+    assert not near(middle, red) and not near(middle, green)
+    assert near(frame_at(final, boundary + 0.33, tmp_path / "fim.png").getpixel((960, 540)), green)
 
 
 def test_cena_com_resolucao_diferente_falha_sem_escalar(tmp_path, logo):

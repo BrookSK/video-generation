@@ -1,4 +1,4 @@
-"""Montagem da aula no supervisor CPU: abertura, cenas em ordem com corte seco e encerramento.
+"""Montagem da aula no supervisor CPU: abertura, cenas em ordem com dissolução e encerramento.
 
 Só FFmpeg e Pillow, sem GPU: o FFmpeg roda sem shell, sem hwaccel nem nvenc e com
 CUDA_VISIBLE_DEVICES vazio. A cena nunca é escalada para outro formato: resolução diferente
@@ -36,6 +36,8 @@ CANVAS = {"9:16": (1080, 1920), "16:9": (1920, 1080)}
 FPS = 25
 CARD_SECONDS = 3.0
 FADE_SECONDS = 0.5
+# Dissolução entre cenas; nunca mais que metade da cena mais curta da passagem.
+TRANSITION_SECONDS = 0.4
 AUDIO_RATE = 48000
 # Mesmo perfil de exportação da receita de vídeo (docs/models/RECIPE-v1.json).
 VIDEO_CODEC = "libx264"
@@ -271,7 +273,32 @@ def _scene_video(index: int, scene: ScenePlan, source: int, still: Callable[...,
             f"[s{index}l{layer - 1}][{image}:v]overlay=x={overlay.x}:y={overlay.y}"
             f":eof_action=pass{when}[s{index}l{layer}]"
         )
-    filters.append(f"[s{index}l{len(scene.overlays)}]format={PIX_FMT},setsar=1[v{index}]")
+    filters.append(
+        f"[s{index}l{len(scene.overlays)}]format={PIX_FMT},setsar=1,setpts=PTS-STARTPTS[v{index}]"
+    )
+    return filters
+
+
+def _dissolve(scenes: list[ScenePlan]) -> list[str]:
+    """Junta as cenas com dissolução; a duração total é a soma das cenas.
+
+    A cena que sai ganha o último quadro parado pelo tempo da dissolução, e a que entra
+    começa no instante em que a anterior terminaria. Assim o vídeo de cada cena continua
+    alinhado ao áudio dela, que é concatenado sem sobreposição.
+    """
+    if len(scenes) == 1:
+        return ["[v1]null[vs]"]
+    filters, current, offset = [], "[v1]", 0.0
+    for index in range(1, len(scenes)):
+        outgoing, incoming = scenes[index - 1], scenes[index]
+        seconds = min(TRANSITION_SECONDS, outgoing.duration / 2, incoming.duration / 2)
+        offset += outgoing.duration
+        filters.append(f"{current}tpad=stop_mode=clone:stop_duration={seconds:.6f}[d{index}]")
+        current = "[vs]" if index == len(scenes) - 1 else f"[x{index}]"
+        filters.append(
+            f"[d{index}][v{index + 1}]xfade=transition=fade:duration={seconds:.6f}"
+            f":offset={offset:.6f}{current}"
+        )
     return filters
 
 
@@ -282,7 +309,7 @@ def build_assemble_args(
     out_path: Path,
     music: Path | None = None,
 ) -> list[str]:
-    """Argumentos do ffmpeg: abertura, cenas na ordem e encerramento, com corte seco.
+    """Argumentos do ffmpeg: abertura, cenas na ordem com dissolução e encerramento.
 
     Abertura e encerramento são o quadro por 3 s com fade de 0,5 s a partir da cor de fundo
     e áudio silencioso. O áudio de cada cena é completado com silêncio ou cortado até a
@@ -321,9 +348,11 @@ def build_assemble_args(
     count += 1
     filters.append(f"[{closing}:v]{card_video}[v{last}]")
     filters.append(f"[{closing + 1}:a]{audio}[a{last}]")
-    segments = "".join(f"[v{i}][a{i}]" for i in range(last + 1))
+    filters += _dissolve(scenes)
+    filters.append(f"[v0][vs][v{last}]concat=n=3:v=1:a=0[v]")
     voice = "[a]"
-    filters.append(f"{segments}concat=n={last + 1}:v=1:a=1[v]{voice}")
+    voices = "".join(f"[a{i}]" for i in range(last + 1))
+    filters.append(f"{voices}concat=n={last + 1}:v=0:a=1{voice}")
     if music is not None:
         total = 2 * CARD_SECONDS + sum(scene.duration for scene in scenes)
         args += ["-stream_loop", "-1", "-i", str(music)]
