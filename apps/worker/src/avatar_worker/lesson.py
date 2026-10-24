@@ -273,8 +273,10 @@ def _scene_video(index: int, scene: ScenePlan, source: int, still: Callable[...,
             f"[s{index}l{layer - 1}][{image}:v]overlay=x={overlay.x}:y={overlay.y}"
             f":eof_action=pass{when}[s{index}l{layer}]"
         )
+    # O xfade do FFmpeg 7 exige taxa constante; depois do overlay ela chega como 1/0.
     filters.append(
-        f"[s{index}l{len(scene.overlays)}]format={PIX_FMT},setsar=1,setpts=PTS-STARTPTS[v{index}]"
+        f"[s{index}l{len(scene.overlays)}]format={PIX_FMT},setsar=1,setpts=PTS-STARTPTS,"
+        f"fps={FPS}[v{index}]"
     )
     return filters
 

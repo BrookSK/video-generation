@@ -10,7 +10,15 @@ import pytest
 from PIL import Image
 
 from avatar_worker.finalize import probe_output
-from avatar_worker.lesson import CARD_SECONDS, TRANSITION_SECONDS, assemble_lesson, draw_card
+from avatar_worker.lesson import (
+    CARD_SECONDS,
+    FPS,
+    TRANSITION_SECONDS,
+    ScenePlan,
+    assemble_lesson,
+    build_assemble_args,
+    draw_card,
+)
 from avatar_worker.lesson_text import LAYOUTS
 from avatar_worker.video import GenerationFailure
 
@@ -191,6 +199,17 @@ def test_cena_curta_dissolve_em_metade_dela(tmp_path, logo):
     middle = frame_at(final, boundary + 0.1, tmp_path / "meio.png").getpixel((960, 540))
     assert not near(middle, red) and not near(middle, green)
     assert near(frame_at(final, boundary + 0.33, tmp_path / "fim.png").getpixel((960, 540)), green)
+
+
+def test_cena_chega_ao_xfade_com_taxa_constante(tmp_path):
+    # O FFmpeg 7.1 da imagem recusa xfade sem taxa constante, que o overlay perde (24/10);
+    # o FFmpeg local aceita, então o grafo é conferido aqui e a montagem real na VPS.
+    plans = [ScenePlan(path=tmp_path / f"cena-{i}.mp4", duration=1.0) for i in (1, 2)]
+    args = build_assemble_args(tmp_path / "card.png", plans, BACKGROUND, tmp_path / "final.mp4")
+    graph = args[args.index("-filter_complex") + 1].split(";")
+    for index in (1, 2):
+        (chain,) = [f for f in graph if f.endswith(f"[v{index}]")]
+        assert chain.endswith(f",fps={FPS}[v{index}]")
 
 
 def test_cena_com_resolucao_diferente_falha_sem_escalar(tmp_path, logo):
