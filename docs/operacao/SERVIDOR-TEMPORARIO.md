@@ -65,6 +65,16 @@ gerados e guardados em `/srv/avatar/access/painel-admin.json`, com leitura permi
 somente ao root. Leia esse arquivo por SSH para obter o acesso. Em uma nova
 instalação, guarde a senha escolhida para a CLI no cofre de senhas da equipe.
 
+Para criar mais usuários ou trocar a senha de alguém, rode na raiz do código. O script gera uma
+senha provisória e a mostra uma única vez; `--reset` também reativa um acesso removido:
+
+```bash
+bash infra/scripts/create-user.sh --username nome@empresa.com.br
+bash infra/scripts/create-user.sh --username nome@empresa.com.br --reset
+```
+
+O uso do painel pelo cliente está no [manual do cliente](../manual/MANUAL.md).
+
 ## Operação
 
 ```bash
