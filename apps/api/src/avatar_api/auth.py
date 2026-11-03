@@ -75,15 +75,19 @@ def _dummy_password_hash() -> str:
 
 
 class UserCreationError(Exception):
-    """Falha de criação de usuário com mensagem em português pronta para o operador."""
+    """Falha ao criar usuário ou trocar a senha, com mensagem em português para o operador."""
+
+
+def _check_password(password: str) -> None:
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise UserCreationError(f"A senha precisa ter pelo menos {MIN_PASSWORD_LENGTH} caracteres.")
 
 
 def create_user(db: Session, username: str, password: str) -> User:
     username = username.strip()
     if not username:
         raise UserCreationError("Informe um nome de usuário.")
-    if len(password) < MIN_PASSWORD_LENGTH:
-        raise UserCreationError(f"A senha precisa ter pelo menos {MIN_PASSWORD_LENGTH} caracteres.")
+    _check_password(password)
     user = User(username=username, password_hash=hash_password(password))
     db.add(user)
     try:
@@ -91,6 +95,24 @@ def create_user(db: Session, username: str, password: str) -> User:
     except IntegrityError as exc:
         db.rollback()
         raise UserCreationError(f"Já existe um usuário com o nome {username}.") from exc
+    return user
+
+
+def set_password(db: Session, username: str, password: str) -> User:
+    """Troca a senha, reativa o acesso removido e encerra as sessões abertas do usuário."""
+    _check_password(password)
+    username = username.strip()
+    user = db.scalar(select(User).where(User.username == username).with_for_update())
+    if user is None:
+        raise UserCreationError(f"Não existe usuário com o nome {username}.")
+    user.password_hash = hash_password(password)
+    user.disabled_at = None
+    db.execute(
+        update(UserSession)
+        .where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=func.now())
+    )
+    db.commit()
     return user
 
 
