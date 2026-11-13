@@ -1252,7 +1252,7 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1365,7 +1365,7 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1460,7 +1460,7 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1556,7 +1556,7 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1653,7 +1653,279 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Dados inválidos ou fala acima do limite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erro interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Banco ou receita vigente indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyBearer": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create Avatar",
+        "operationId": "create_avatar_api_v1_avatars_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_avatar_api_v1_avatars_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAvatarDetailOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chave de API ausente ou inválida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado ou de outra chave.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Dados inválidos ou fala acima do limite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erro interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Banco ou receita vigente indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/avatars/{avatar_id}": {
+      "get": {
+        "summary": "Get Avatar",
+        "operationId": "get_avatar_api_v1_avatars__avatar_id__get",
+        "parameters": [
+          {
+            "name": "avatar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Avatar Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAvatarDetailOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chave de API ausente ou inválida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado ou de outra chave.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Dados inválidos ou fala acima do limite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erro interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Banco ou receita vigente indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete Avatar",
+        "operationId": "delete_avatar_api_v1_avatars__avatar_id__delete",
+        "parameters": [
+          {
+            "name": "avatar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Avatar Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Chave de API ausente ou inválida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado ou de outra chave.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1736,7 +2008,7 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1846,7 +2118,7 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1956,7 +2228,7 @@
             }
           },
           "409": {
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3006,6 +3278,24 @@
         ],
         "title": "AttemptRef"
       },
+      "AvatarErrorOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "AvatarErrorOut"
+      },
       "AvatarListOut": {
         "properties": {
           "items": {
@@ -3100,6 +3390,51 @@
           "archived_at"
         ],
         "title": "AvatarOut"
+      },
+      "Body_create_avatar_api_v1_avatars_post": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "consent_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consent Name"
+          },
+          "consent_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Consent At"
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "file",
+          "consent_name",
+          "consent_at"
+        ],
+        "title": "Body_create_avatar_api_v1_avatars_post"
       },
       "Body_create_avatar_panel_avatars_post": {
         "properties": {
@@ -4618,6 +4953,94 @@
           "duration_seconds"
         ],
         "title": "PanelJobOut"
+      },
+      "PublicAvatarDetailOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "voice": {
+            "type": "string",
+            "title": "Voice"
+          },
+          "preview_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Url"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processando",
+              "ativo",
+              "falha"
+            ],
+            "title": "Status"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvatarErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Name"
+          },
+          "consent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "voice",
+          "preview_url",
+          "created_at",
+          "status",
+          "error",
+          "consent_name",
+          "consent_at"
+        ],
+        "title": "PublicAvatarDetailOut"
       },
       "PublicAvatarOut": {
         "properties": {

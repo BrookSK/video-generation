@@ -1,13 +1,14 @@
 """API pública /api/v1, autenticada por chave de API em todas as rotas."""
 
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import AfterValidator, AwareDatetime, BaseModel, StringConstraints
 from sqlalchemy import select
 
 from avatar_api import assets
@@ -25,10 +26,12 @@ from avatar_api.job_views import (
 from avatar_api.jobs import (
     JobRequester,
     NewVideoJob,
+    _without_nul,
     create_video_job,
     last_video_worker_heartbeat,
 )
 from avatar_api.models import Avatar, Scene, StoredFile, VideoJob
+from avatar_api.uploads import validate_image
 
 
 class PublicErrorDetail(BaseModel):
@@ -50,7 +53,7 @@ router = APIRouter(
         404: {"model": PublicErrorOut, "description": "Recurso não encontrado ou de outra chave."},
         409: {
             "model": PublicErrorOut,
-            "description": "Conflito de intenção ou vídeo indisponível.",
+            "description": "Conflito de intenção, vídeo indisponível ou avatar em preparação.",
         },
         422: {"model": PublicErrorOut, "description": "Dados inválidos ou fala acima do limite."},
         500: {"model": PublicErrorOut, "description": "Erro interno."},
@@ -110,7 +113,8 @@ def download_job(
 
 
 # --- avatares e cenários ----------------------------------------------------------------
-# Só o que a criação de job aceita; sem id de arquivo, caminho do volume ou autorização.
+# Sem id de arquivo, caminho do volume ou usuário do painel. A listagem traz só o que a
+# criação de job aceita; a consulta por id mostra também o avatar em preparação ou em falha.
 
 
 class PublicAvatarOut(BaseModel):
@@ -119,6 +123,18 @@ class PublicAvatarOut(BaseModel):
     voice: str
     preview_url: str | None
     created_at: datetime
+
+
+class AvatarErrorOut(BaseModel):
+    code: str
+    message: str
+
+
+class PublicAvatarDetailOut(PublicAvatarOut):
+    status: Literal["processando", "ativo", "falha"]
+    error: AvatarErrorOut | None
+    consent_name: str | None
+    consent_at: datetime | None
 
 
 class PublicSceneOut(BaseModel):
@@ -144,20 +160,79 @@ def _preview_response(path: Path, stored: StoredFile) -> FileResponse:
     return FileResponse(path, media_type=stored.content_type, headers={"Cache-Control": "private"})
 
 
+def _public_avatar_out(avatar: Avatar) -> PublicAvatarOut:
+    return PublicAvatarOut(
+        id=avatar.id,
+        name=avatar.name,
+        voice=avatar.voice,
+        preview_url=_preview_url("avatars", avatar),
+        created_at=avatar.created_at,
+    )
+
+
+def _avatar_out(db: DbSession, avatar: Avatar) -> PublicAvatarDetailOut:
+    failure = assets.avatar_prepare_failure(db, avatar)
+    return PublicAvatarDetailOut(
+        **_public_avatar_out(avatar).model_dump(),
+        status="processando" if avatar.prepare_status == "preparando" else avatar.prepare_status,
+        error=AvatarErrorOut(code=failure[0], message=failure[1]) if failure else None,
+        consent_name=avatar.consent_name,
+        consent_at=avatar.authorized_at,
+    )
+
+
 @router.get("/avatars")
 def list_avatars(db: DbSession) -> AvatarListOut:
     return AvatarListOut(
-        items=[
-            PublicAvatarOut(
-                id=avatar.id,
-                name=avatar.name,
-                voice=avatar.voice,
-                preview_url=_preview_url("avatars", avatar),
-                created_at=avatar.created_at,
-            )
-            for avatar in assets.list_public_avatars(db)
-        ]
+        items=[_public_avatar_out(avatar) for avatar in assets.list_public_avatars(db)]
     )
+
+
+# As restrições vêm antes do validador de NUL; depois dele o pydantic deixaria de aplicá-las.
+_AvatarName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=assets.ASSET_NAME_MAX_CHARS),
+    AfterValidator(_without_nul),
+]
+_ConsentName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    AfterValidator(_without_nul),
+]
+
+
+@router.post("/avatars", status_code=201)
+def create_avatar(
+    name: Annotated[_AvatarName, Form()],
+    file: Annotated[UploadFile, File()],
+    consent_name: Annotated[_ConsentName, Form()],
+    consent_at: Annotated[AwareDatetime, Form()],
+    key: CurrentApiKey,
+    db: DbSession,
+    request: Request,
+    voice: Annotated[str | None, Form()] = None,
+) -> PublicAvatarDetailOut:
+    voice = assets.valid_voice(voice)
+    consent = assets.ApiConsent(api_key_id=key.id, name=consent_name, at=consent_at)
+    # O temporário da validação fica fora de DATA_DIR: recusa não deixa nada no volume.
+    with tempfile.TemporaryDirectory(prefix="avatar-upload-") as tmp_dir:
+        image = validate_image(file.file, "file", Path(tmp_dir))
+        avatar = assets.create_avatar(
+            db, request.app.state.settings.data_dir, consent, name, voice, image
+        )
+    return _avatar_out(db, avatar)
+
+
+@router.get("/avatars/{avatar_id}")
+def get_avatar(avatar_id: uuid.UUID, db: DbSession) -> PublicAvatarDetailOut:
+    return _avatar_out(db, assets.get_avatar(db, avatar_id, archived_is_missing=True))
+
+
+# Arquiva, como no painel: os arquivos ficam porque jobs antigos podem referenciar o avatar.
+@router.delete("/avatars/{avatar_id}", status_code=204)
+def delete_avatar(avatar_id: uuid.UUID, db: DbSession) -> Response:
+    assets.archive_avatar(db, avatar_id, archived_is_missing=True)
+    return Response(status_code=204)
 
 
 @router.get("/scenes")

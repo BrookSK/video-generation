@@ -158,8 +158,11 @@ class Avatar(Base):
     prepare_error: Mapped[str | None] = mapped_column(Text)
     authorized_by_user_id: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
     authorized_at: Mapped[datetime | None]
+    # Avatar criado pela API: sem usuário do painel, com o nome de quem autorizou e a chave.
+    consent_name: Mapped[str | None] = mapped_column(Text)
     archived_at: Mapped[datetime | None]
     created_by_user_id: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
+    created_by_api_key_id: Mapped[uuid.UUID | None] = _fk("api_keys.id", nullable=True)
     created_at: Mapped[datetime] = _created_at()
 
 

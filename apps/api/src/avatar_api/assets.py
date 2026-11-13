@@ -10,6 +10,8 @@ import json
 import math
 import re
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,6 +23,7 @@ from sqlalchemy.orm import Session
 from avatar_api.errors import ApiError
 from avatar_api.models import (
     ASPECT_RATIOS,
+    VOICES,
     AssetPrepareTask,
     Avatar,
     BrandIdentity,
@@ -80,22 +83,54 @@ def asset_dir(asset_id: uuid.UUID) -> str:
     return f"assets/{asset_id}"
 
 
+ASSET_NAME_MAX_CHARS = 80
+
+
 def avatar_status(avatar: Avatar) -> AvatarStatus:
     return "arquivado" if avatar.archived_at is not None else avatar.prepare_status
+
+
+def valid_voice(voice: str | None) -> str:
+    if voice not in VOICES:
+        raise ApiError(422, "VALIDATION_ERROR", "Escolha a voz do avatar.", "voice")
+    return voice
+
+
+@dataclass(frozen=True)
+class ApiConsent:
+    """Autorização de uso da imagem informada pela API, com a chave que criou o avatar."""
+
+    api_key_id: uuid.UUID
+    name: str
+    at: datetime
 
 
 def create_avatar(
     session: Session,
     data_dir: Path,
-    user_id: uuid.UUID,
+    author: uuid.UUID | ApiConsent,
     name: str,
     voice: str,
     image: ValidatedImage,
 ) -> Avatar:
     """Grava a imagem, o avatar em preparando e a tarefa asset_prepare num único commit.
 
-    Se qualquer passo falhar, nada fica: a transação é desfeita e o arquivo gravado é apagado.
+    author é o usuário do painel, que autoriza o uso da imagem no ato, ou a autorização
+    informada pela API. Se qualquer passo falhar, nada fica: a transação é desfeita e o
+    arquivo gravado é apagado.
     """
+    if isinstance(author, ApiConsent):
+        authorship: dict[str, Any] = {
+            "consent_name": author.name,
+            "authorized_at": author.at,
+            "created_by_api_key_id": author.api_key_id,
+        }
+    else:
+        authorship = {
+            "authorized_by_user_id": author,
+            "authorized_at": func.now(),
+            "created_by_user_id": author,
+        }
     avatar_id = uuid.uuid4()
     try:
         with image.path.open("rb") as stream:
@@ -115,9 +150,7 @@ def create_avatar(
             voice=voice,
             source_file_id=source.id,
             prepare_status="preparando",
-            authorized_by_user_id=user_id,
-            authorized_at=func.now(),
-            created_by_user_id=user_id,
+            **authorship,
         )
         session.add(avatar)
         session.flush()
@@ -130,11 +163,30 @@ def create_avatar(
     return avatar
 
 
-def get_avatar(session: Session, avatar_id: uuid.UUID, for_update: bool = False) -> Avatar:
+def get_avatar(
+    session: Session,
+    avatar_id: uuid.UUID,
+    for_update: bool = False,
+    archived_is_missing: bool = False,
+) -> Avatar:
+    """archived_is_missing: a API pública trata avatar arquivado como inexistente."""
     avatar = session.get(Avatar, avatar_id, with_for_update=for_update)
-    if avatar is None:
+    if avatar is None or (archived_is_missing and avatar.archived_at is not None):
         raise ApiError(404, "NOT_FOUND", "Avatar não encontrado.")
     return avatar
+
+
+def avatar_prepare_failure(session: Session, avatar: Avatar) -> tuple[str, str] | None:
+    """Código e mensagem da falha de preparação; None se o avatar não está em falha."""
+    if avatar.prepare_status != "falha":
+        return None
+    code = session.scalar(
+        select(AssetPrepareTask.error_code)
+        .where(AssetPrepareTask.avatar_id == avatar.id, AssetPrepareTask.status == "failed")
+        .order_by(AssetPrepareTask.created_at.desc())
+        .limit(1)
+    )
+    return code or "PREPARE_FAILED", avatar.prepare_error or ""
 
 
 def list_avatars(session: Session, include_archived: bool = False) -> list[Avatar]:
@@ -144,9 +196,16 @@ def list_avatars(session: Session, include_archived: bool = False) -> list[Avata
     return list(session.scalars(query))
 
 
-def archive_avatar(session: Session, avatar_id: uuid.UUID) -> Avatar:
-    """Tira o avatar de novos usos sem apagar arquivo; arquivar de novo não muda nada."""
-    avatar = get_avatar(session, avatar_id, for_update=True)
+def archive_avatar(
+    session: Session, avatar_id: uuid.UUID, archived_is_missing: bool = False
+) -> Avatar:
+    """Tira o avatar de novos usos sem apagar arquivo; arquivar de novo não muda nada.
+
+    Com archived_is_missing, arquivar de novo responde 404 em vez de repetir o resultado.
+    """
+    avatar = get_avatar(
+        session, avatar_id, for_update=True, archived_is_missing=archived_is_missing
+    )
     if avatar.archived_at is None:
         if avatar.prepare_status == "preparando":
             raise ApiError(

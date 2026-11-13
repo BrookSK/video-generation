@@ -43,7 +43,6 @@ from avatar_api.job_views import (
 )
 from avatar_api.jobs import _without_nul
 from avatar_api.models import (
-    VOICES,
     ApiKey,
     Avatar,
     BrandIdentity,
@@ -71,7 +70,7 @@ _Name = Annotated[
 
 _AssetName = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=80),
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=assets.ASSET_NAME_MAX_CHARS),
     AfterValidator(_without_nul),
 ]
 
@@ -343,8 +342,7 @@ def create_avatar(
     voice: Annotated[str | None, Form()] = None,
     authorization_confirmed: Annotated[bool | None, Form()] = None,
 ) -> AvatarOut:
-    if voice not in VOICES:
-        raise ApiError(422, "VALIDATION_ERROR", "Escolha a voz do avatar.", "voice")
+    voice = assets.valid_voice(voice)
     if authorization_confirmed is not True:
         raise ApiError(
             422, "VALIDATION_ERROR", "Confirme a autorização de uso da imagem.", "authorization"
