@@ -60,10 +60,26 @@ ssh -N -L 8088:127.0.0.1:8088 root@157.173.113.161
 ```
 
 Abra `http://localhost:8088`. A comunicação com o servidor passa pelo SSH.
+
+Para atender também por um domínio com HTTPS, aponte o registro `A` do domínio para a VPS e
+defina no `.env` `SITE_ADDRESS="dominio, http://localhost"`. Inclua
+`-f infra/compose/docker-compose.domain.yml` em todos os comandos `docker compose` deste
+servidor: ele publica as portas 80 e 443 e guarda o certificado em volume. O túnel continua
+funcionando. Com o proxy do Cloudflare ativo, use o modo SSL/TLS "Full (strict)".
 Na instalação realizada em `157.173.113.161`, o usuário inicial e a senha foram
 gerados e guardados em `/srv/avatar/access/painel-admin.json`, com leitura permitida
 somente ao root. Leia esse arquivo por SSH para obter o acesso. Em uma nova
 instalação, guarde a senha escolhida para a CLI no cofre de senhas da equipe.
+
+Para criar mais usuários ou trocar a senha de alguém, rode na raiz do código. O script gera uma
+senha provisória e a mostra uma única vez; `--reset` também reativa um acesso removido:
+
+```bash
+bash infra/scripts/create-user.sh --username nome@empresa.com.br
+bash infra/scripts/create-user.sh --username nome@empresa.com.br --reset
+```
+
+O uso do painel pelo cliente está no [manual do cliente](../manual/MANUAL.md).
 
 ## Operação
 

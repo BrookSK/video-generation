@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from avatar_api import cli
@@ -136,6 +136,32 @@ def test_cli_recusa_senha_curta(database_url, session):
     assert result.returncode == 1
     assert "pelo menos 12 caracteres" in result.stderr
     assert session.scalar(select(User).where(User.username == "curta")) is None
+
+
+def test_cli_redefine_senha_reativa_acesso_e_encerra_sessoes(database_url, client, admin, session):
+    assert login(client).status_code == 200
+    session.execute(update(User).where(User.id == admin.id).values(disabled_at=func.now()))
+    session.commit()
+    nova = "outra-senha-forte-123"
+    result = run_cli(
+        database_url, "users", "set-password", "--username", "admin", "--password-stdin",
+        stdin=nova + "\n",
+    )  # fmt: skip
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "Senha de admin redefinida."
+    assert nova not in result.stdout + result.stderr
+    assert client.get("/panel/auth/me").status_code == 401
+    assert login(client).status_code == 401
+    assert login(client, password=nova).status_code == 200
+
+
+def test_cli_redefinir_senha_de_usuario_inexistente_falha(database_url, session):
+    result = run_cli(
+        database_url, "users", "set-password", "--username", "ninguem", "--password-stdin",
+        stdin=PASSWORD + "\n",
+    )  # fmt: skip
+    assert result.returncode == 1
+    assert "Não existe usuário com o nome ninguem." in result.stderr
 
 
 def test_cli_le_senha_por_getpass(database_url, session, monkeypatch, capsys):

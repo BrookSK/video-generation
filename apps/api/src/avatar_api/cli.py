@@ -7,7 +7,7 @@ import sys
 
 from sqlalchemy.orm import Session
 
-from avatar_api.auth import UserCreationError, create_user
+from avatar_api.auth import UserCreationError, create_user, set_password
 from avatar_api.config import Settings
 from avatar_api.db import create_db_engine
 from avatar_api.devseed import seed_dev_catalog
@@ -42,6 +42,28 @@ def _users_create(args: argparse.Namespace) -> int:
     finally:
         engine.dispose()
     print(f"Usuário {user.username} criado.")
+    return 0
+
+
+def _users_set_password(args: argparse.Namespace) -> int:
+    database_url = Settings.from_env().database_url
+    if not database_url:
+        print("Erro: defina DATABASE_URL para acessar o banco.", file=sys.stderr)
+        return 1
+    password = _read_password(args.password_stdin)
+    if password is None:
+        print("Erro: as senhas digitadas não conferem.", file=sys.stderr)
+        return 1
+    engine = create_db_engine(database_url)
+    try:
+        with Session(engine, expire_on_commit=False) as db:
+            user = set_password(db, args.username, password)
+    except UserCreationError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        engine.dispose()
+    print(f"Senha de {user.username} redefinida.")
     return 0
 
 
@@ -99,6 +121,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Lê a senha da primeira linha da entrada padrão em vez de perguntar.",
     )
     create.set_defaults(handler=_users_create)
+    reset = users_commands.add_parser(
+        "set-password",
+        help="Troca a senha de um usuário, reativa o acesso e encerra as sessões dele.",
+    )
+    reset.add_argument("--username", required=True, help="Nome de usuário.")
+    reset.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="Lê a senha da primeira linha da entrada padrão em vez de perguntar.",
+    )
+    reset.set_defaults(handler=_users_set_password)
     recipes = commands.add_parser("recipes", help="Receitas de renderização.")
     recipes_commands = recipes.add_subparsers(dest="recipes_command", required=True)
     load = recipes_commands.add_parser(

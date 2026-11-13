@@ -1,0 +1,15 @@
+# Servidor temporário com domínio. Use junto do docker-compose.yml e do docker-compose.cpu.yml,
+# com SITE_ADDRESS="dominio, http://localhost" no .env: o domínio recebe HTTPS automático e o
+# túnel SSH em 127.0.0.1:8088 continua atendendo pelo endereço localhost.
+services:
+  caddy:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
