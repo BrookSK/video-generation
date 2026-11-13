@@ -1,9 +1,11 @@
-"""Listagem pública de avatares e cenários: só itens ativos, sem arquivos nem autorização,
-prévia por formato e arquivamento que bloqueia job novo sem apagar nada."""
+"""Avatares e cenários na API pública: listagem só de itens ativos, sem arquivos nem usuário
+do painel, prévia por formato, arquivamento que bloqueia job novo sem apagar nada e
+cadastro, consulta e arquivamento de avatar por chave de API."""
 
 import hashlib
 import json
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -14,7 +16,7 @@ from sqlalchemy.orm import Session
 from avatar_api.auth import issue_api_key
 from avatar_api.config import Settings
 from avatar_api.devseed import DevCatalog
-from avatar_api.models import Avatar, Scene, StoredFile, User, VideoJob
+from avatar_api.models import ApiKey, AssetPrepareTask, Avatar, Scene, StoredFile, User, VideoJob
 
 WORKER = {"Authorization": "Bearer token-do-worker-de-teste"}
 COMPOSITION = {
@@ -59,17 +61,23 @@ def new_avatar(panel: TestClient, image_bytes):
     return make
 
 
-@pytest.fixture
-def active_avatar(panel: TestClient, new_avatar, image_bytes):
-    """Avatar cadastrado pelo painel e preparado por worker simulado; devolve id e prévias."""
+def claim_prepare(panel: TestClient) -> dict:
+    """O worker simulado pega a tarefa de preparação mais antiga da fila."""
+    response = panel.post(
+        "/internal/v1/claim",
+        json={"worker_id": "cpu-01", "kinds": ["asset_prepare"]},
+        headers=WORKER,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
 
-    def make(name: str) -> tuple[uuid.UUID, dict[str, bytes]]:
-        avatar_id = new_avatar(name)
-        claimed = panel.post(
-            "/internal/v1/claim",
-            json={"worker_id": "cpu-01", "kinds": ["asset_prepare"]},
-            headers=WORKER,
-        ).json()
+
+@pytest.fixture
+def prepare_queued(panel: TestClient, image_bytes):
+    """Worker simulado prepara o avatar mais antigo da fila; devolve o conteúdo das prévias."""
+
+    def run() -> dict[str, bytes]:
+        claimed = claim_prepare(panel)
         base = f"/internal/v1/asset-tasks/{claimed['id']}"
         contents, file_ids = {}, {}
         for kind, size in PREVIEW_SIZES.items():
@@ -96,7 +104,18 @@ def active_avatar(panel: TestClient, new_avatar, image_bytes):
             headers=WORKER,
         )
         assert done.status_code == 200, done.text
-        return avatar_id, contents
+        return contents
+
+    return run
+
+
+@pytest.fixture
+def active_avatar(new_avatar, prepare_queued):
+    """Avatar cadastrado pelo painel e preparado por worker simulado; devolve id e prévias."""
+
+    def make(name: str) -> tuple[uuid.UUID, dict[str, bytes]]:
+        avatar_id = new_avatar(name)
+        return avatar_id, prepare_queued()
 
     return make
 
@@ -333,3 +352,174 @@ def test_job_com_asset_arquivado_recebe_422_e_nada_e_apagado(
     assert any(path.startswith(f"assets/{scene_id}/") for path in files_before)
     assert str(avatar_id) not in {item["id"] for item in listed(panel, auth, "avatars")}
     assert str(scene_id) not in {item["id"] for item in listed(panel, auth, "scenes")}
+
+
+# --- cadastro, consulta e arquivamento de avatar pela API -------------------------------
+
+CONSENT = {"consent_name": "Maria Souza", "consent_at": "2026-11-10T09:30:00-03:00"}
+AVATAR_FORM = {"name": "Ana", "voice": "feminina", **CONSENT}
+AVATAR_KEYS = {
+    "id",
+    "name",
+    "voice",
+    "status",
+    "error",
+    "consent_name",
+    "consent_at",
+    "preview_url",
+    "created_at",
+}
+
+
+def post_public_avatar(panel: TestClient, auth, image: bytes | None, **form):
+    """POST multipart; campo com valor None fica fora do envio."""
+    data = {key: value for key, value in {**AVATAR_FORM, **form}.items() if value is not None}
+    files = {"file": ("foto.png", image, "image/png")} if image is not None else None
+    # Sem arquivo, o httpx só monta multipart se receber files; um campo vazio resolve.
+    return panel.post("/api/v1/avatars", data=data, files=files or {"_": ""}, headers=auth)
+
+
+def get_public_avatar(panel: TestClient, auth, avatar_id) -> dict:
+    response = panel.get(f"/api/v1/avatars/{avatar_id}", headers=auth)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_avatar_criado_pela_api_guarda_consentimento_e_fica_processando(
+    panel: TestClient, auth, image_bytes, session: Session
+):
+    response = post_public_avatar(panel, auth, image_bytes("png", (80, 120)))
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert set(body) == AVATAR_KEYS
+    assert (body["name"], body["voice"], body["status"]) == ("Ana", "feminina", "processando")
+    assert (body["error"], body["preview_url"]) == (None, None)
+    assert body["consent_name"] == "Maria Souza"
+    assert datetime.fromisoformat(body["consent_at"]) == datetime.fromisoformat(
+        CONSENT["consent_at"]
+    )
+    for key in all_keys(body):
+        assert not any(part in key for part in FORBIDDEN_KEY_PARTS), key
+    assert get_public_avatar(panel, auth, body["id"]) == body
+    # Em preparação ainda não entra na listagem, que só traz o que a criação de job aceita.
+    assert listed(panel, auth, "avatars") == []
+    avatar = session.get(Avatar, uuid.UUID(body["id"]))
+    assert (avatar.created_by_user_id, avatar.authorized_by_user_id) == (None, None)
+    assert avatar.created_by_api_key_id == session.scalar(select(ApiKey.id))
+    task_status = select(AssetPrepareTask.status).where(AssetPrepareTask.avatar_id == avatar.id)
+    assert session.scalars(task_status).all() == ["queued"]
+
+
+@pytest.mark.parametrize(
+    "form,field,code",
+    [
+        ({"voice": "robotica"}, "voice", "VALIDATION_ERROR"),
+        ({"voice": None}, "voice", "VALIDATION_ERROR"),
+        ({"consent_name": None}, "consent_name", "VALIDATION_ERROR"),
+        ({"consent_name": "   "}, "consent_name", "VALIDATION_ERROR"),
+        ({"consent_at": None}, "consent_at", "VALIDATION_ERROR"),
+        ({"consent_at": "ontem"}, "consent_at", "VALIDATION_ERROR"),
+        # Sem fuso não é um instante: a API não adivinha o horário local de quem autorizou.
+        ({"consent_at": "2026-11-10T09:30:00"}, "consent_at", "VALIDATION_ERROR"),
+        ({"image": b"isto nao e uma imagem"}, "file", "UNSUPPORTED_FILE_TYPE"),
+        ({"image": None}, "file", "VALIDATION_ERROR"),
+    ],
+)
+def test_cadastro_pela_api_recusa_dado_invalido_sem_gravar_nada(
+    panel: TestClient, auth, image_bytes, session: Session, settings: Settings, form, field, code
+):
+    image = form.pop("image") if "image" in form else image_bytes("png")
+
+    response = post_public_avatar(panel, auth, image, **form)
+
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert (error["code"], error["field"]) == (code, field)
+    assert session.scalar(select(func.count()).select_from(Avatar)) == 0
+    assert data_files(settings.data_dir) == []
+
+
+def test_consulta_mostra_avatar_ativo_e_em_falha_com_o_motivo(
+    panel: TestClient, auth, image_bytes, prepare_queued
+):
+    ready = post_public_avatar(panel, auth, image_bytes("png", (80, 120)), name="Pronto").json()
+    prepare_queued()
+    broken = post_public_avatar(panel, auth, image_bytes("png", (80, 120)), name="Falho").json()
+    claimed = claim_prepare(panel)
+    failed = panel.post(
+        f"/internal/v1/asset-tasks/{claimed['id']}/fail",
+        json={
+            "attempt_id": claimed["attempt_id"],
+            "lease_generation": claimed["lease_generation"],
+            "error_code": "INPUT_INVALID",
+            "error_message": "Nenhuma pessoa na imagem.",
+            "retryable": False,
+        },
+        headers=WORKER,
+    )
+    assert failed.status_code == 200, failed.text
+
+    active = get_public_avatar(panel, auth, ready["id"])
+    with_error = get_public_avatar(panel, auth, broken["id"])
+
+    assert (active["status"], active["error"]) == ("ativo", None)
+    assert active["preview_url"] == f"/api/v1/avatars/{ready['id']}/preview"
+    assert with_error["status"] == "falha"
+    assert with_error["error"] == {
+        "code": "INPUT_INVALID",
+        "message": "Nenhuma pessoa na imagem.",
+    }
+    # Só o ativo entra na listagem; o contrato dela não ganha os campos da consulta.
+    assert [item["id"] for item in listed(panel, auth, "avatars")] == [ready["id"]]
+
+
+def test_delete_arquiva_sem_apagar_arquivo_e_o_avatar_some_da_api(
+    panel: TestClient, auth, image_bytes, prepare_queued, session: Session, settings: Settings
+):
+    avatar_id = post_public_avatar(panel, auth, image_bytes("png", (80, 120))).json()["id"]
+    prepare_queued()
+    files_before = data_files(settings.data_dir)
+    path = f"/api/v1/avatars/{avatar_id}"
+
+    deleted = panel.delete(path, headers=auth)
+
+    assert (deleted.status_code, deleted.content) == (204, b"")
+    for response in (
+        panel.get(path, headers=auth),
+        panel.delete(path, headers=auth),
+        panel.delete(f"/api/v1/avatars/{uuid.uuid4()}", headers=auth),
+    ):
+        assert response.status_code == 404, response.text
+        assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert listed(panel, auth, "avatars") == []
+    assert session.get(Avatar, uuid.UUID(avatar_id)).archived_at is not None
+    assert data_files(settings.data_dir) == files_before
+    assert any(name.startswith(f"assets/{avatar_id}/") for name in files_before)
+
+
+def test_delete_de_avatar_em_preparacao_responde_409(panel: TestClient, auth, image_bytes):
+    avatar_id = post_public_avatar(panel, auth, image_bytes("png")).json()["id"]
+
+    response = panel.delete(f"/api/v1/avatars/{avatar_id}", headers=auth)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "AVATAR_PREPARING"
+    assert get_public_avatar(panel, auth, avatar_id)["status"] == "processando"
+
+
+def test_cadastro_consulta_e_delete_exigem_chave(
+    panel: TestClient, image_bytes, new_avatar, session: Session
+):
+    avatar_id = new_avatar("Ana")
+    path = f"/api/v1/avatars/{avatar_id}"
+
+    for response in (
+        post_public_avatar(panel, {}, image_bytes("png")),
+        panel.get(path),
+        panel.delete(path),
+    ):
+        assert response.status_code == 401, response.text
+        assert response.json()["error"]["code"] == "UNAUTHORIZED"
+    assert session.scalar(select(func.count()).select_from(Avatar)) == 1
+    assert session.get(Avatar, avatar_id).archived_at is None
