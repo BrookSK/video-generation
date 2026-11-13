@@ -1,6 +1,6 @@
 # Pedidos fora do escopo
 
-Um pedido novo registrado, abaixo. Este documento não transforma defeitos do combinado em cobrança extra nem registra aceite em nome do cliente.
+Dois pedidos novos registrados, abaixo. Este documento não transforma defeitos do combinado em cobrança extra nem registra aceite em nome do cliente.
 
 ## Correções incluídas
 
@@ -24,3 +24,12 @@ Vereditos de qualidade e aceite ficam em [MATRIZ.md](MATRIZ.md). Dúvida sobre a
 - Impacto: novo ciclo M002-montagem-institucional no Bianchini Method, com aula, cenas, identidade visual e montagem em CPU. Sem GPU nova e sem mudança na receita de inferência.
 - Fora do pedido: narração contínua refeita em GPU, produção da série de aulas pelo desenvolvedor e trabalho contínuo.
 - Decisão real do cliente: aprovou em 22/10/2026 o valor de R$ 650 ("vamos seguir com aquele valor menor"). O cliente pagou por Pix em 22/10 a metade do total combinado com o Help Desk (R$ 2.750); o restante vem na entrega. Início previsto para 26/10/2026, entrega na mesma semana.
+
+### 13/11/2026: avatares pela API
+
+- Solicitante: Lucas Narciso (ON Solutions), por mensagens e áudios de 13/11.
+- Pedido: o sistema dele (My Academy) passar a fazer pela API o que hoje é feito no painel: separação por escola, avatares, cenários, identidade visual, trilhas, aulas, revisões e aviso por webhook.
+- Diferença em relação ao combinado: o escopo selado do M001 prevê a API só para criar job, consultar status, listar assets e baixar o vídeo. Cadastro de avatar e de cenário é feito pelo painel.
+- Impacto: a API `/api/v1` ganha cadastro, consulta e arquivamento de avatar por chave de API, com o nome de quem autorizou o uso da imagem e a data da autorização. O fluxo de vídeo, o painel e o worker não mudam. Uso descrito em [GUIA.md](../api/GUIA.md).
+- Fora do pedido atendido: separação por escola na plataforma, cenários, identidade visual, trilhas, aulas, revisões e webhook pela API. Ficam para proposta separada. A separação por escola fica no sistema do cliente, que guarda a qual escola pertence cada avatar.
+- Decisão: em 13/11/2026 o Felipe decidiu fazer sem custo o cadastro, a consulta e o arquivamento de avatares pela API. Os demais itens não foram aprovados nem orçados.
