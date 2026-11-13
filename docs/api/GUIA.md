@@ -1,4 +1,4 @@
-# API de vídeos — guia de integração
+# API de vídeos: guia de integração
 
 A API recebe **texto literal**, avatar e cenário cadastrados; devolve um job persistido, não o vídeo imediatamente. Não interpreta instruções de cena nem escreve roteiros. O worker gera voz e animação na GPU. O download é MP4; a postagem no Instagram é manual.
 
@@ -18,7 +18,7 @@ curl --fail-with-body "$API_URL/api/v1/scenes" -H "Authorization: Bearer $API_KE
 
 ## 1. Listar os assets disponíveis
 
-`GET /api/v1/avatars` e `GET /api/v1/scenes` retornam `items`. Só assets ativos aparecem. `voice` vem do avatar, não do pedido. Cadastro/preparação/arquivamento são feitos no painel. `preview_url` pode ser `null` se não houver prévia preparada; isso não é ausência do asset.
+`GET /api/v1/avatars` e `GET /api/v1/scenes` retornam `items`. Só assets ativos aparecem. `voice` vem do avatar, não do pedido. Cenários são cadastrados e arquivados no painel. Avatares podem ser cadastrados e arquivados no painel ou pela API (seção 5); a listagem só mostra o avatar depois que a preparação termina. `preview_url` pode ser `null` se não houver prévia preparada; isso não é ausência do asset.
 
 Os UUIDs abaixo são **exemplos**, não IDs da instalação. Use os IDs recebidos por HTTP.
 
@@ -109,6 +109,71 @@ curl --fail-with-body "$API_URL/api/v1/jobs/$JOB_ID/download" \
 ```
 
 Perfil final: H.264/yuv420p, AAC, MP4 com faststart, 25 FPS; 1080×1920 em 9:16 ou 1920×1080 em 16:9. O worker valida a mídia antes de publicar. Duração é a do áudio gerado, não uma estimativa calculada no cliente. Guarde o arquivo e publique manualmente; não existe endpoint de Instagram.
+
+## 5. Cadastrar, consultar e arquivar avatares
+
+`POST /api/v1/avatars` recebe `multipart/form-data`, não JSON, com os campos:
+
+| Campo | Obrigatório | Conteúdo |
+|---|---|---|
+| `file` | sim | Foto da pessoa em JPEG, PNG ou WebP, até 20 MB. É a mesma validação do painel. |
+| `name` | sim | Nome do avatar, de 1 a 80 caracteres. |
+| `voice` | sim | `feminina` ou `masculina`. |
+| `consent_name` | sim | Nome de quem autorizou o uso da imagem, de 1 a 200 caracteres. |
+| `consent_at` | sim | Data e hora da autorização em RFC 3339, com fuso: `2026-11-10T09:30:00-03:00` ou `2026-11-10T12:30:00Z`. |
+
+Consentimento: o sistema só gera vídeo de rosto com autorização da pessoa. No painel, quem cadastra confirma a autorização na tela. Pela API não há pessoa logada, então o seu sistema informa quem autorizou e quando, e a instalação guarda esses dois dados com o avatar. Guarde a prova da autorização (termo, aceite) do seu lado; a API não recebe o documento. Sem `consent_name` ou `consent_at`, ou com data sem fuso, a resposta é 422.
+
+```bash
+curl --fail-with-body -X POST "$API_URL/api/v1/avatars" \
+  -H "Authorization: Bearer $API_KEY" \
+  -F "file=@foto.png;type=image/png" \
+  -F "name=Professora Ana" \
+  -F "voice=feminina" \
+  -F "consent_name=Ana Souza" \
+  -F "consent_at=2026-11-10T09:30:00-03:00"
+```
+
+201 significa que a foto e o avatar foram gravados e a preparação entrou na fila. O avatar ainda não pode ser usado em job:
+
+<!-- example: response POST /api/v1/avatars 201 -->
+```json
+{"id":"aaaaaaaa-0000-4000-8000-000000000002","name":"Professora Ana","voice":"feminina","preview_url":null,"created_at":"2026-11-13T12:00:00Z","status":"processando","error":null,"consent_name":"Ana Souza","consent_at":"2026-11-10T12:30:00Z"}
+```
+
+`GET /api/v1/avatars/{avatar_id}` devolve o avatar com `status`. Consulte a cada 3 s até sair de `processando`:
+
+- `processando`: a foto está na fila ou sendo preparada (recorte da pessoa e prévias). Não use o avatar em job ainda: a criação de job responde 422 `AVATAR_UNAVAILABLE`.
+- `ativo`: pronto. Aparece em `GET /api/v1/avatars`, tem `preview_url` e pode ser usado em `POST /api/v1/jobs`.
+- `falha`: a preparação não conseguiu usar a foto. `error.code` e `error.message` trazem o motivo, por exemplo foto sem pessoa visível. O avatar não muda mais: apague com DELETE e cadastre outro com uma foto diferente.
+
+<!-- example: response GET /api/v1/avatars/{avatar_id} 200 -->
+```json
+{"id":"aaaaaaaa-0000-4000-8000-000000000002","name":"Professora Ana","voice":"feminina","preview_url":"/api/v1/avatars/aaaaaaaa-0000-4000-8000-000000000002/preview","created_at":"2026-11-13T12:00:00Z","status":"ativo","error":null,"consent_name":"Ana Souza","consent_at":"2026-11-10T12:30:00Z"}
+```
+
+<!-- example: response GET /api/v1/avatars/{avatar_id} 200 -->
+```json
+{"id":"aaaaaaaa-0000-4000-8000-000000000003","name":"Foto sem pessoa","voice":"masculina","preview_url":null,"created_at":"2026-11-13T12:00:00Z","status":"falha","error":{"code":"INPUT_INVALID","message":"Nenhuma pessoa na imagem."},"consent_name":"Carlos Lima","consent_at":"2026-11-10T12:30:00Z"}
+```
+
+Avatar cadastrado pelo painel também pode ser consultado e apagado pela API; nele `consent_name` vem `null` e `consent_at` é o momento em que a pessoa do painel confirmou a autorização. A preparação depende do worker de preparação estar ligado, não da GPU.
+
+`DELETE /api/v1/avatars/{avatar_id}` arquiva o avatar e responde 204 sem corpo. Arquivar não apaga arquivo: a foto e as prévias continuam guardadas porque vídeos já criados podem usar o avatar, e esses vídeos seguem disponíveis para download. O avatar arquivado sai da listagem, não entra em job novo e passa a responder 404 na consulta, na prévia e em um novo DELETE. Não há como desarquivar pela API. Avatar em `processando` não pode ser apagado: a resposta é 409 `AVATAR_PREPARING`; espere `ativo` ou `falha`.
+
+```bash
+curl --fail-with-body -X DELETE "$API_URL/api/v1/avatars/$AVATAR_ID" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+Os avatares são da instalação, não da chave: qualquer chave vigente lista, consulta e apaga qualquer avatar. Não existe edição: para trocar foto, nome ou voz, apague e cadastre outro. Se o seu sistema separa avatares por escola ou cliente, guarde essa relação do seu lado, pelo `id` devolvido no cadastro.
+
+Erros do cadastro, todos 422 com `field`: `voice` ausente ou diferente de `feminina`/`masculina`; `name`, `consent_name` ou `consent_at` ausente ou inválido; `file` ausente; arquivo que não é JPEG, PNG ou WebP (`UNSUPPORTED_FILE_TYPE`); arquivo vazio (`FILE_EMPTY`); arquivo acima de 20 MB (`FILE_TOO_LARGE`); imagem acima de 40 megapixels (`IMAGE_TOO_LARGE`); imagem ilegível (`IMAGE_UNREADABLE`).
+
+<!-- example: response POST /api/v1/avatars 422 -->
+```json
+{"error":{"code":"VALIDATION_ERROR","message":"Dados inválidos na requisição.","field":"consent_at","request_id":"exemplo-req-3"}}
+```
 
 ## Erros HTTP
 
