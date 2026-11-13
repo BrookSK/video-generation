@@ -235,7 +235,7 @@ def test_migracao_de_aulas_e_aditiva_e_reversivel(empty_database_url, migrate):
     assert not tables & LESSON_TABLES
     assert not _job_columns(empty_database_url) & LESSON_JOB_COLUMNS
 
-    migrate(empty_database_url)
+    migrate(empty_database_url, "0004")
     tables, revision = _tables_and_revision(empty_database_url)
     assert LESSON_TABLES <= tables
     assert revision == "0004"
@@ -246,6 +246,36 @@ def test_migracao_de_aulas_e_aditiva_e_reversivel(empty_database_url, migrate):
     assert not tables & LESSON_TABLES
     assert revision == "0003"
     assert not _job_columns(empty_database_url) & LESSON_JOB_COLUMNS
+
+
+CONSENT_COLUMNS = {"consent_name", "created_by_api_key_id"}
+
+
+def test_migracao_de_consentimento_preserva_avatar_existente(empty_database_url, migrate):
+    migrate(empty_database_url, "0004")
+    engine = create_db_engine(empty_database_url)
+    try:
+        with Session(engine) as session:
+            # SQL direto: o modelo atual já tem as colunas que a 0004 ainda não criou.
+            avatar_id = session.scalar(
+                text(
+                    "INSERT INTO avatars (name, voice, source_file_id)"
+                    " VALUES ('Antigo', 'feminina', :source) RETURNING id"
+                ),
+                {"source": add_file(session).id},
+            )
+            session.commit()
+        migrate(empty_database_url)
+        with Session(engine) as session:
+            avatar = session.get(Avatar, avatar_id)
+            assert (avatar.consent_name, avatar.created_by_api_key_id) == (None, None)
+        migrate(empty_database_url, "0004", downgrade=True)
+        with engine.connect() as connection:
+            columns = {column["name"] for column in inspect(connection).get_columns("avatars")}
+            assert not columns & CONSENT_COLUMNS
+            assert connection.scalar(select(func.count()).select_from(Avatar.__table__)) == 1
+    finally:
+        engine.dispose()
 
 
 def test_modelos_coincidem_com_a_migracao(engine):
