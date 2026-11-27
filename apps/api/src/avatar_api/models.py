@@ -418,3 +418,29 @@ class LessonAssembleTask(Base):
     created_at: Mapped[datetime] = _created_at()
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
+
+
+class GpuLifecycle(Base):
+    __tablename__ = "gpu_lifecycle"
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    phase: Mapped[str] = mapped_column(Text)
+    hostname: Mapped[str | None] = mapped_column(Text)
+    instance_id: Mapped[uuid.UUID | None]
+    volume_id: Mapped[uuid.UUID | None]
+    started_at: Mapped[datetime | None]
+    idle_since: Mapped[datetime | None]
+    retry_at: Mapped[datetime | None]
+    window_started_at: Mapped[datetime | None]
+    launches: Mapped[int]
+
+
+class VerdaBatchDispatch(Base):
+    __tablename__ = "verda_batch_dispatches"
+
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    dispatch_id: Mapped[uuid.UUID]
+    video_id: Mapped[uuid.UUID]
+    submitted_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    launches: Mapped[int]
+    phase: Mapped[str] = mapped_column(Text)

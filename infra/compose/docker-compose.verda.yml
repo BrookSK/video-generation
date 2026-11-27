@@ -1,0 +1,17 @@
+# Optional overlay for the VPS that hosts the API and PostgreSQL.
+services:
+  api:
+    environment:
+      VERDA_WORKER_ID: ${VERDA_WORKER_ID:?Informe o ID exclusivo deste ambiente}
+  gpu-controller:
+    image: ${API_IMAGE:?Informe a imagem da API com digest verificado}
+    command: ["python", "-m", "avatar_api.gpu_controller"]
+    restart: unless-stopped
+    env_file:
+      - ${VERDA_ENV_FILE:?Informe o caminho do arquivo secreto da Verda na VPS}
+    environment:
+      DATABASE_URL: postgresql://avatar:${POSTGRES_PASSWORD:-}@postgres:5432/avatar
+      VERDA_WORKER_ID: ${VERDA_WORKER_ID:?Informe o ID exclusivo deste ambiente}
+    depends_on:
+      api:
+        condition: service_healthy

@@ -1,3 +1,4 @@
+import hashlib
 import threading
 import uuid
 from collections import Counter
@@ -15,16 +16,20 @@ from avatar_api.auth import create_user, issue_api_key
 from avatar_api.config import Settings
 from avatar_api.db import create_db_engine
 from avatar_api.devseed import DevCatalog
+from avatar_api.gpu_controller import Policy, run_once
 from avatar_api.main import create_app
 from avatar_api.models import (
     AssetPrepareTask,
     Avatar,
+    GpuLifecycle,
     JobAttempt,
     RenderRecipe,
     Scene,
     VideoJob,
     WorkerHeartbeat,
 )
+from avatar_api.verda import VerdaError
+from avatar_api.verda_batch import reconcile
 
 WORKER_TOKEN = "token-do-worker-de-teste"
 WORKER = {"Authorization": f"Bearer {WORKER_TOKEN}"}
@@ -176,6 +181,7 @@ def test_claim_de_video_grava_tentativa_e_lease_pelo_relogio_do_banco(
         None,
     )
 
+
 def test_claim_usa_receita_do_job_mesmo_depois_da_troca_e_archive(
     client, make_job, session, seeded_catalog
 ):
@@ -202,7 +208,6 @@ def test_claim_usa_receita_do_job_mesmo_depois_da_troca_e_archive(
     assert data["payload"]["recipe_spec"] != replacement.spec
     assert data["payload"]["voice"] == "feminina"
     assert data["payload"]["composition"]["16:9"]["scale"] == 0.9
-
 
 
 def test_lease_segue_lease_seconds_da_configuracao(settings: Settings, make_job, worker_engine):
@@ -645,3 +650,191 @@ def test_heartbeat_de_item_inexistente_ou_de_outro_tipo_devolve_404(
     assert_error(heartbeat(client, "jobs", uuid.uuid4(), job["attempt_id"], 1), 404, "NOT_FOUND")
     assert_error(heartbeat(client, "asset-tasks", job_id, job["attempt_id"], 1), 404, "NOT_FOUND")
     assert_error(heartbeat(client, "jobs", task_id, task["attempt_id"], 1), 404, "NOT_FOUND")
+
+
+def test_managed_gpu_reconciles_and_deletes_only_after_upload(
+    engine, session, settings, make_job, tmp_path
+):
+
+    policy = gpu_policy()
+    verda = FakeVerda()
+    managed = replace(settings, verda_worker_id=policy.worker_id)
+    job_id = make_job()
+
+    with TestClient(create_app(managed)) as client:
+        assert claim(client, ["video"], policy.worker_id).status_code == 204
+        run_once(engine, policy, verda)
+        assert verda.creates == 1
+        assert claim(client, ["video"], "unmanaged").status_code == 204
+        claimed = claim(client, ["video"], policy.worker_id).json()
+        assert claimed["id"] == str(job_id)
+        run_once(engine, policy, verda)
+        assert verda.deleted == []
+
+        video = tmp_path / "small.mp4"
+        video.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 32)
+        with video.open("rb") as media:
+            uploaded = client.put(
+                f"/internal/v1/jobs/{job_id}/attempts/{claimed['attempt_id']}/files/final.mp4",
+                headers=WORKER,
+                data={
+                    "lease_generation": claimed["lease_generation"],
+                    "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                },
+                files={"file": ("final.mp4", media, "video/mp4")},
+            )
+        assert uploaded.status_code == 201, uploaded.text
+        run_once(engine, policy, verda)
+        assert verda.deleted == []
+        complete = client.post(
+            f"/internal/v1/jobs/{job_id}/complete",
+            headers=WORKER,
+            json={
+                "attempt_id": claimed["attempt_id"],
+                "lease_generation": claimed["lease_generation"],
+                "result_file_id": uploaded.json()["id"],
+            },
+        )
+        assert complete.status_code == 200, complete.text
+        assert complete.json()["status"] == "ready"
+        run_once(engine, policy, verda)
+        assert verda.deleted == []
+        session.execute(update(GpuLifecycle).values(idle_since=func.now() - timedelta(minutes=2)))
+        session.commit()
+        run_once(engine, policy, verda)
+        assert verda.deleted == [verda.instance_id]
+        run_once(engine, policy, verda)
+        assert session.get(GpuLifecycle, policy.worker_id).phase == "idle"
+        assert fresh(engine, VideoJob, job_id).result_file_id is not None
+
+
+def test_managed_gpu_recovers_an_ambiguous_create_without_duplicate(engine, make_job):
+
+    policy = gpu_policy()
+    verda = FakeVerda(timeout=True)
+    make_job()
+    with pytest.raises(VerdaError):
+        run_once(engine, policy, verda)
+    run_once(engine, policy, verda)
+    run_once(engine, policy, verda)
+    assert verda.creates == 1
+    assert fresh(engine, GpuLifecycle, policy.worker_id).instance_id == verda.instance_id
+
+
+def test_managed_gpu_ignores_journal_copied_from_another_environment(engine, session):
+
+    policy = gpu_policy()
+    verda = FakeVerda()
+    verda.create("other-host", policy.instance_type, policy.location, policy.volume_id, None, False)
+    session.add(
+        GpuLifecycle(
+            worker_id="other-environment",
+            phase="stopping",
+            hostname="other-host",
+            instance_id=verda.instance_id,
+            volume_id=policy.volume_id,
+            started_at=BASE_TIME,
+            launches=1,
+        )
+    )
+    session.commit()
+    run_once(engine, policy, verda)
+    assert verda.deleted == []
+
+
+def gpu_policy():
+
+    return Policy(
+        worker_id="managed-test",
+        instance_type="1RTXPRO6000",
+        location="FIN-03",
+        volume_id=uuid.uuid4(),
+        ssh_key_id=uuid.uuid4(),
+        boot_timeout=timedelta(minutes=10),
+        idle_timeout=timedelta(minutes=1),
+        max_runtime=timedelta(hours=1),
+        max_launches_per_hour=1,
+    )
+
+
+class FakeVerda:
+    def __init__(self, timeout=False):
+        self.timeout = timeout
+        self.instance_id = uuid.uuid4()
+        self.instance = None
+        self.creates = 0
+        self.deleted = []
+
+    def create(self, hostname, instance_type, location, volume_id, ssh_key_id, spot):
+
+        self.creates += 1
+        self.instance = {
+            "id": str(self.instance_id),
+            "hostname": hostname,
+            "os_volume_id": str(volume_id),
+            "status": "running",
+        }
+        if self.timeout:
+            raise VerdaError(None)
+        return str(self.instance_id)
+
+    def find(self, hostname):
+        assert self.instance["hostname"] == hostname
+        return self.instance
+
+    def get(self, instance_id):
+        assert instance_id == self.instance_id
+        return self.instance
+
+    def delete(self, instance_id):
+        assert instance_id == self.instance_id
+        self.deleted.append(instance_id)
+        self.instance = None
+
+    def volume_in_use(self, volume_id):
+        return self.instance is not None and self.instance["os_volume_id"] == str(volume_id)
+
+
+def test_verda_batch_retry_recovers_dispatch_and_claims_exactly_the_selected_job(
+    settings, session, make_job
+):
+    class Provider:
+        def __init__(self):
+            self.requests = []
+
+        def submit(self, row):
+            self.requests.append((row.dispatch_id, row.video_id))
+            raise VerdaError(None)
+
+        def finished(self, row):
+            return False
+
+    first, second = make_job(BASE_TIME), make_job(BASE_TIME + timedelta(seconds=30))
+    worker = "batch-dev"
+    provider = Provider()
+    with pytest.raises(VerdaError):
+        reconcile(session, worker, provider, timedelta(minutes=30))
+    reconcile(session, worker, provider, timedelta(minutes=30))
+    ((dispatch, submitted),) = provider.requests
+    assert submitted == first
+    managed = replace(settings, verda_worker_id=worker, verda_batch_enabled=True)
+    with TestClient(create_app(managed)) as client:
+
+        def batch_claim(job):
+            return client.post(
+                "/internal/v1/claim",
+                headers=WORKER,
+                json={
+                    "worker_id": worker,
+                    "kinds": ["video"],
+                    "job_id": str(job),
+                    "dispatch_id": str(dispatch),
+                },
+            )
+
+        assert claim(client, ["video"], worker).status_code == 204
+        assert batch_claim(second).status_code == 204
+        assert batch_claim(first).json()["id"] == str(first)
+        assert batch_claim(first).status_code == 204
+    session.expire_all()
+    assert session.get(VideoJob, second).status == "queued"
