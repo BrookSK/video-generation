@@ -29,7 +29,7 @@ from avatar_api.models import (
     WorkerHeartbeat,
 )
 from avatar_api.verda import VerdaError
-from avatar_api.verda_batch import reconcile
+from avatar_api.verda_batch import Batch, reconcile
 
 WORKER_TOKEN = "token-do-worker-de-teste"
 WORKER = {"Authorization": f"Bearer {WORKER_TOKEN}"}
@@ -806,8 +806,8 @@ def test_verda_batch_retry_recovers_dispatch_and_claims_exactly_the_selected_job
             self.requests.append((row.dispatch_id, row.video_id))
             raise VerdaError(None)
 
-        def finished(self, row):
-            return False
+        def state(self, row):
+            return "waiting"
 
     first, second = make_job(BASE_TIME), make_job(BASE_TIME + timedelta(seconds=30))
     worker = "batch-dev"
@@ -837,4 +837,33 @@ def test_verda_batch_retry_recovers_dispatch_and_claims_exactly_the_selected_job
         assert batch_claim(first).json()["id"] == str(first)
         assert batch_claim(first).status_code == 204
     session.expire_all()
+    assert session.get(VideoJob, second).status == "queued"
+
+
+
+def test_verda_batch_fails_unclaimed_video_and_keeps_replica_guard(
+    session, make_job, monkeypatch
+):
+    provider = Batch("estudioia-dev", "test")
+    requests = []
+
+    def call(method, path, dispatch_id, body=None):
+        requests.append((method, path))
+        if method == "POST":
+            assert body["dispatch_id"] == str(dispatch_id)
+            return {"Id": str(dispatch_id)}
+        return {"Id": str(dispatch_id), "Status": "Error"}
+
+    monkeypatch.setattr(provider, "call", call)
+    first = make_job(BASE_TIME)
+    second = make_job(BASE_TIME + timedelta(seconds=30))
+    for _ in range(3):
+        reconcile(session, "batch-dev", provider, timedelta(minutes=55))
+    assert requests == [
+        ("POST", "/estudioia-dev/render"),
+        ("GET", "/status/estudioia-dev"),
+    ]
+    video = session.get(VideoJob, first)
+    assert video.status == "failed"
+    assert video.error_code == "VERDA_BATCH_FAILED"
     assert session.get(VideoJob, second).status == "queued"

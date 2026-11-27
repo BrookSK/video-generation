@@ -8,12 +8,13 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from collections.abc import Mapping
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
 
 from avatar_worker.manifest import _load_checked, pull
-from avatar_worker.supervisor import Config, Supervisor, load_config
 
 
 def seed_cache(manifest: Path, models: Path) -> None:
@@ -31,7 +32,10 @@ def seed_cache(manifest: Path, models: Path) -> None:
         marker.touch()
 
 
-def run_video(config: Config, dispatch_id: str, job_id: str) -> bool:
+def run_video(env: Mapping[str, str], dispatch_id: str, job_id: str) -> bool:
+    from avatar_worker.supervisor import Supervisor, load_config
+
+    config = load_config(env)
     seed_cache(config.video_runtime.manifest_path, config.video_runtime.models_dir)
     with httpx.Client(
         base_url=config.api_url,
@@ -43,7 +47,9 @@ def run_video(config: Config, dispatch_id: str, job_id: str) -> bool:
 
 
 class BatchServer(ThreadingHTTPServer):
-    def __init__(self, port: int, config: Config):
+    daemon_threads = False
+
+    def __init__(self, port: int, config: Mapping[str, str]):
         self.config = config
         self.render_lock = threading.Lock()
         self.exit_code = 1
@@ -63,37 +69,40 @@ class BatchHandler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def do_GET(self) -> None:
-        self.reply(200 if self.path == "/health" else 404, {})
+        self.reply(200 if urlsplit(self.path).path == "/health" else 404, {})
 
     def do_POST(self) -> None:
-        if self.path != "/render":
-            self.reply(404, {})
-            return
         if not self.server.render_lock.acquire(blocking=False):
             self.reply(409, {})
             return
+        try:
+            self.run_job()
+        finally:
+            self.server.shutdown()
+
+    def run_job(self) -> None:
         dispatch_id = None
         try:
+            if urlsplit(self.path).path != "/render":
+                self.reply(404, {"dispatch_id": None})
+                return
             size = int(self.headers.get("Content-Length", "0"))
             if not 0 < size <= 1024:
                 raise ValueError
             request = json.loads(self.rfile.read(size))
             dispatch_id = str(UUID(request["dispatch_id"]))
             job_id = str(UUID(request["job_id"]))
-        except (TypeError, ValueError, KeyError):
-            status = 400
-        else:
-            try:
-                claimed = run_video(self.server.config, dispatch_id, job_id)
-                status = 200 if claimed else 409
-                self.server.exit_code = 0 if claimed else 1
-            except Exception as exc:
-                logging.error("Verda batch failed: %s", type(exc).__name__)
-                status = 500
+        except (TypeError, ValueError, KeyError, AttributeError):
+            self.reply(400, {"dispatch_id": dispatch_id})
+            return
         try:
-            self.reply(status, {"dispatch_id": dispatch_id})
-        finally:
-            self.server.shutdown()
+            completed = run_video(self.server.config, dispatch_id, job_id)
+        except Exception as exc:
+            logging.error("Verda batch failed: %s", type(exc).__name__)
+            self.reply(500, {"dispatch_id": dispatch_id})
+            return
+        self.reply(200 if completed else 409, {"dispatch_id": dispatch_id})
+        self.server.exit_code = 0 if completed else 1
 
     def log_message(self, format, *args):
         # Only structured worker diagnostics are emitted.
@@ -102,8 +111,8 @@ class BatchHandler(BaseHTTPRequestHandler):
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO)
-    config = load_config(os.environ)
-    if config.kinds != ("video",):
+    config = os.environ.copy()
+    if config.get("WORKER_KINDS") != "video":
         raise ValueError("Batch replicas accept only video jobs")
     with BatchServer(int(os.getenv("PORT", "8000")), config) as server:
         server.serve_forever(poll_interval=0.1)

@@ -20,22 +20,27 @@ from avatar_api.verda import NoRedirect, VerdaError
 
 LOG = logging.getLogger(__name__)
 LOCK_ID = 0x4156415441524254
-TASKS = "https://tasks.verda.com"
+TASKS = "https://tasks.datacrunch.io"
+TASKS_ENDPOINTS = {TASKS, "https://tasks.verda.com"}
+FAILED_STATES = {"error", "failed", "timeout", "expired", "cancelled", "canceled", "deadline"}
 MAX_LAUNCHES_PER_VIDEO = 3
 REJECTED = {400, 401, 403, 404, 422, 429}
 
 
 class Batch:
-    def __init__(self, deployment: str, token: str) -> None:
+    def __init__(self, deployment: str, token: str, endpoint: str = TASKS) -> None:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", deployment) or not token:
             raise ValueError("Invalid Verda Batch deployment or token")
+        self.endpoint = endpoint.rstrip("/")
+        if self.endpoint not in TASKS_ENDPOINTS:
+            raise ValueError("Invalid Verda Batch Tasks endpoint")
         self.deployment = deployment
         self.token = token
         self.opener = urllib.request.build_opener(NoRedirect)
 
     def call(self, method: str, path: str, dispatch_id: UUID, body: dict | None = None):
         request = urllib.request.Request(
-            TASKS + path,
+            self.endpoint + path,
             data=json.dumps(body).encode() if body is not None else None,
             headers={
                 "Authorization": f"Bearer {self.token}",
@@ -65,14 +70,30 @@ class Batch:
         if not isinstance(result, dict) or result.get("Id") != str(dispatch.dispatch_id):
             raise VerdaError(None)
 
-    def finished(self, dispatch: VerdaBatchDispatch) -> bool:
+    def state(self, dispatch: VerdaBatchDispatch) -> str:
+        try:
+            status = self.call("GET", f"/status/{self.deployment}", dispatch.dispatch_id)
+        except VerdaError as exc:
+            if exc.status in {202, 404, 409, 425}:
+                return "waiting"
+            raise
+        expected_id = str(dispatch.dispatch_id)
+        if not isinstance(status, dict) or status.get("Id") != expected_id:
+            return "waiting"
+        provider_state = str(status.get("Status", "")).lower()
+        if provider_state in FAILED_STATES:
+            return "failed"
+        if provider_state != "completed":
+            return "waiting"
         try:
             result = self.call("GET", f"/result/{self.deployment}", dispatch.dispatch_id)
         except VerdaError as exc:
             if exc.status in {202, 404, 409, 425}:
-                return False
+                return "waiting"
             raise
-        return isinstance(result, dict) and result.get("dispatch_id") == str(dispatch.dispatch_id)
+        if isinstance(result, dict) and result.get("dispatch_id") == expected_id:
+            return "completed"
+        return "waiting"
 
 
 def selected_video(
@@ -99,10 +120,27 @@ def reconcile(session: Session, worker: str, provider: Batch, horizon: timedelta
     if row and now < row.expires_at:
         if row.phase != "cooldown":
             session.commit()
-            if provider.finished(row):
-                row.phase = "cooldown"
+            state = provider.state(row)
+            if state == "waiting":
+                return
+            row = session.get(
+                VerdaBatchDispatch, worker, populate_existing=True, with_for_update=True
+            )
+            row.phase = "cooldown"
+            if state == "completed":
                 row.expires_at = now + timedelta(seconds=60)
-                session.commit()
+            else:
+                # A terminal inference can leave its replica alive until the deadline.
+                video = session.get(VideoJob, row.video_id, with_for_update=True)
+                if video is not None and video.status == "queued":
+                    _mark_failed(
+                        session,
+                        video,
+                        "VERDA_BATCH_FAILED",
+                        "A Verda encerrou o pedido antes de o worker assumir o vídeo.",
+                    )
+                LOG.warning("Verda Batch reported failure for dispatch %s", row.dispatch_id)
+            session.commit()
         return
     if session.scalar(select(VideoJob.id).where(VideoJob.status == "processing").limit(1)):
         return
@@ -179,7 +217,11 @@ def run_once(engine, worker: str, provider: Batch, horizon: timedelta):
 def main():
     logging.basicConfig(level=logging.INFO)
     worker = os.environ["VERDA_WORKER_ID"]
-    provider = Batch(os.environ["VERDA_BATCH_DEPLOYMENT"], os.environ["VERDA_BATCH_TOKEN"])
+    provider = Batch(
+        os.environ["VERDA_BATCH_DEPLOYMENT"],
+        os.environ["VERDA_BATCH_TOKEN"],
+        os.getenv("VERDA_BATCH_TASKS_URL", TASKS),
+    )
     horizon = int(os.environ["VERDA_BATCH_HORIZON_SECONDS"])
     if horizon < 600 or not worker.strip():
         raise ValueError("Batch horizon must cover provider queue TTL plus execution deadline")
