@@ -21,7 +21,10 @@ export type VideoJob = JobCreated & VideoInput & {
   size_bytes: number | null;
   duration_seconds: number | null;
 };
-export type WorkerPresence = { last_heartbeat_at: string | null };
+export type WorkerPresence = {
+  last_heartbeat_at: string | null;
+  gpu_status?: "idle" | "starting" | "ready" | "stopping" | "unavailable";
+};
 
 export const STATUS_LABEL: Record<JobStatus, string> = { queued: "Na fila", processing: "Processando", ready: "Pronto", failed: "Falha" };
 export const STAGES = [
