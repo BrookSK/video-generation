@@ -46,12 +46,14 @@ from avatar_api.models import (
     ApiKey,
     Avatar,
     BrandIdentity,
+    GpuLifecycle,
     Lesson,
     RenderRecipe,
     Scene,
     StoredFile,
     User,
     UserSession,
+    VerdaBatchDispatch,
     VideoJob,
 )
 from avatar_api.storage import resolve_path
@@ -572,9 +574,32 @@ def generation_config(_: CurrentPanelSession, db: DbSession) -> GenerationConfig
     )
 
 
-@router.get("/worker-status")
-def video_worker_status(_: CurrentPanelSession, db: DbSession) -> WorkerStatusOut:
-    return WorkerStatusOut(last_heartbeat_at=jobs.last_video_worker_heartbeat(db))
+class PanelWorkerStatusOut(WorkerStatusOut):
+    gpu_status: Literal["idle", "starting", "ready", "stopping", "unavailable"] | None = None
+
+
+@router.get("/worker-status", response_model_exclude_unset=True)
+def video_worker_status(
+    _: CurrentPanelSession, db: DbSession, request: Request
+) -> PanelWorkerStatusOut:
+    last_seen = jobs.last_video_worker_heartbeat(db)
+    settings = request.app.state.settings
+    worker_id = settings.verda_worker_id
+    if not worker_id:
+        return PanelWorkerStatusOut(last_heartbeat_at=last_seen)
+    if settings.verda_batch_enabled:
+        batch = db.get(VerdaBatchDispatch, worker_id)
+        if batch is None or batch.expires_at <= db.scalar(select(func.now())):
+            return PanelWorkerStatusOut(last_heartbeat_at=last_seen, gpu_status="idle")
+        phase = {"pending": "starting", "submitted": "starting", "claimed": "ready"}
+        return PanelWorkerStatusOut(
+            last_heartbeat_at=last_seen, gpu_status=phase.get(batch.phase, "unavailable")
+        )
+    gpu = db.get(GpuLifecycle, worker_id)
+    phase = gpu.phase if gpu else "unavailable"
+    if phase in {"cooldown", "unknown"}:
+        phase = "unavailable"
+    return PanelWorkerStatusOut(last_heartbeat_at=last_seen, gpu_status=phase)
 
 
 class PanelJobOut(JobOut):

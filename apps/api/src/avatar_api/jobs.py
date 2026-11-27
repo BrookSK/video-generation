@@ -343,7 +343,12 @@ def last_video_worker_heartbeat(session: Session) -> datetime | None:
 
 
 def claim_next(
-    session: Session, worker_id: str, kinds: list[QueueKind], lease_seconds: int
+    session: Session,
+    worker_id: str,
+    kinds: list[QueueKind],
+    lease_seconds: int,
+    *,
+    job_id: uuid.UUID | None = None,
 ) -> Claim | None:
     """Reivindica o item queued mais antigo do primeiro tipo, na ordem de `kinds`, que tiver um.
 
@@ -355,12 +360,11 @@ def claim_next(
         _record_video_worker(session, worker_id)
     for kind in dict.fromkeys(kinds):
         model = QUEUE_MODELS[kind]
+        queued = select(model).where(model.status == "queued")
+        if kind == "video" and job_id is not None:
+            queued = queued.where(model.id == job_id)
         item = session.scalar(
-            select(model)
-            .where(model.status == "queued")
-            .order_by(model.created_at, model.id)
-            .limit(1)
-            .with_for_update(skip_locked=True)
+            queued.order_by(model.created_at, model.id).limit(1).with_for_update(skip_locked=True)
         )
         if item is None:
             continue

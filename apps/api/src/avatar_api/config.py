@@ -20,9 +20,14 @@ class Settings:
     session_ttl_hours: int = 12
     max_upload_bytes: int = 2 * 1024 * 1024 * 1024
 
+    verda_worker_id: str = ""
+    verda_batch_enabled: bool = False
+
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
+            verda_batch_enabled=os.environ.get("VERDA_BATCH_ENABLED") == "true",
+            verda_worker_id=os.environ.get("VERDA_WORKER_ID", ""),
             database_url=os.environ.get("DATABASE_URL", ""),
             data_dir=Path(os.environ.get("DATA_DIR", "data")),
             worker_token=os.environ.get("WORKER_TOKEN", ""),

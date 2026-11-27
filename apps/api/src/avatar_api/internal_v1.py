@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from avatar_api import jobs
 from avatar_api.auth import DbSession
 from avatar_api.errors import ApiError
+from avatar_api.gpu_controller import video_enabled
 from avatar_api.jobs import (
     AssetFileName,
     AssetPreparePayload,
@@ -25,6 +26,7 @@ from avatar_api.jobs import (
 )
 from avatar_api.models import StoredFile
 from avatar_api.storage import resolve_path
+from avatar_api.verda_batch import selected_video
 
 
 def require_worker(request: Request) -> None:
@@ -47,6 +49,8 @@ router = APIRouter(prefix="/internal/v1", dependencies=[Depends(require_worker)]
 class ClaimIn(BaseModel):
     worker_id: str = Field(min_length=1, max_length=200)
     kinds: list[QueueKind] = Field(min_length=1)
+    dispatch_id: uuid.UUID | None = None
+    job_id: uuid.UUID | None = None
 
 
 class ClaimOut(BaseModel):
@@ -75,7 +79,20 @@ class HeartbeatOut(BaseModel):
 @router.post("/claim", response_model=ClaimOut, responses={204: {"description": "Fila vazia."}})
 def claim(body: ClaimIn, db: DbSession, request: Request):
     settings = request.app.state.settings
-    claimed = jobs.claim_next(db, body.worker_id, body.kinds, settings.lease_seconds)
+    kinds = body.kinds
+    job_id = None
+    if "video" in kinds and settings.verda_batch_enabled:
+        if settings.verda_worker_id and body.worker_id == settings.verda_worker_id:
+            job_id = selected_video(db, body.worker_id, body.dispatch_id, body.job_id)
+        if job_id is None:
+            kinds = [kind for kind in kinds if kind != "video"]
+    elif (
+        "video" in kinds
+        and settings.verda_worker_id
+        and not video_enabled(db, settings.verda_worker_id, body.worker_id)
+    ):
+        kinds = [kind for kind in kinds if kind != "video"]
+    claimed = jobs.claim_next(db, body.worker_id, kinds, settings.lease_seconds, job_id=job_id)
     if claimed is None:
         db.commit()
         return Response(status_code=204)
