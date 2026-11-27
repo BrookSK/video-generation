@@ -29,6 +29,7 @@ from avatar_api.models import (
     WorkerHeartbeat,
 )
 from avatar_api.verda import VerdaError
+from avatar_api.verda_batch import reconcile
 
 WORKER_TOKEN = "token-do-worker-de-teste"
 WORKER = {"Authorization": f"Bearer {WORKER_TOKEN}"}
@@ -792,3 +793,48 @@ class FakeVerda:
 
     def volume_in_use(self, volume_id):
         return self.instance is not None and self.instance["os_volume_id"] == str(volume_id)
+
+
+def test_verda_batch_retry_recovers_dispatch_and_claims_exactly_the_selected_job(
+    settings, session, make_job
+):
+    class Provider:
+        def __init__(self):
+            self.requests = []
+
+        def submit(self, row):
+            self.requests.append((row.dispatch_id, row.video_id))
+            raise VerdaError(None)
+
+        def finished(self, row):
+            return False
+
+    first, second = make_job(BASE_TIME), make_job(BASE_TIME + timedelta(seconds=30))
+    worker = "batch-dev"
+    provider = Provider()
+    with pytest.raises(VerdaError):
+        reconcile(session, worker, provider, timedelta(minutes=30))
+    reconcile(session, worker, provider, timedelta(minutes=30))
+    ((dispatch, submitted),) = provider.requests
+    assert submitted == first
+    managed = replace(settings, verda_worker_id=worker, verda_batch_enabled=True)
+    with TestClient(create_app(managed)) as client:
+
+        def batch_claim(job):
+            return client.post(
+                "/internal/v1/claim",
+                headers=WORKER,
+                json={
+                    "worker_id": worker,
+                    "kinds": ["video"],
+                    "job_id": str(job),
+                    "dispatch_id": str(dispatch),
+                },
+            )
+
+        assert claim(client, ["video"], worker).status_code == 204
+        assert batch_claim(second).status_code == 204
+        assert batch_claim(first).json()["id"] == str(first)
+        assert batch_claim(first).status_code == 204
+    session.expire_all()
+    assert session.get(VideoJob, second).status == "queued"

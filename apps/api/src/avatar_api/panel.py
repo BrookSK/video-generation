@@ -53,6 +53,7 @@ from avatar_api.models import (
     StoredFile,
     User,
     UserSession,
+    VerdaBatchDispatch,
     VideoJob,
 )
 from avatar_api.storage import resolve_path
@@ -582,9 +583,18 @@ def video_worker_status(
     _: CurrentPanelSession, db: DbSession, request: Request
 ) -> PanelWorkerStatusOut:
     last_seen = jobs.last_video_worker_heartbeat(db)
-    worker_id = request.app.state.settings.verda_worker_id
+    settings = request.app.state.settings
+    worker_id = settings.verda_worker_id
     if not worker_id:
         return PanelWorkerStatusOut(last_heartbeat_at=last_seen)
+    if settings.verda_batch_enabled:
+        batch = db.get(VerdaBatchDispatch, worker_id)
+        if batch is None or batch.expires_at <= db.scalar(select(func.now())):
+            return PanelWorkerStatusOut(last_heartbeat_at=last_seen, gpu_status="idle")
+        phase = {"pending": "starting", "submitted": "starting", "claimed": "ready"}
+        return PanelWorkerStatusOut(
+            last_heartbeat_at=last_seen, gpu_status=phase.get(batch.phase, "unavailable")
+        )
     gpu = db.get(GpuLifecycle, worker_id)
     phase = gpu.phase if gpu else "unavailable"
     if phase in {"cooldown", "unknown"}:

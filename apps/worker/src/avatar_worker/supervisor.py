@@ -249,9 +249,11 @@ class Supervisor:
             if not worked:
                 self._wait(self._config.poll_seconds, self._stop)
 
-    def process_next(self) -> bool:
+    def process_next(self, *, dispatch_id: str | None = None, job_id: str | None = None) -> bool:
         """Reivindica e processa um item; devolve False se não havia item para processar."""
         body = {"worker_id": self._config.worker_id, "kinds": list(self._config.kinds)}
+        if dispatch_id and job_id:
+            body.update(dispatch_id=dispatch_id, job_id=job_id)
         response = self._call("POST", "/internal/v1/claim", json=body)
         if response.status_code == 204:
             return False
@@ -263,16 +265,20 @@ class Supervisor:
         with Heartbeat(self._client, task, self._now) as heartbeat:
             try:
                 if task.kind == "video":
-                    self._handle_video(task, heartbeat)
+                    succeeded = self._handle_video(task, heartbeat)
+                    if dispatch_id:
+                        return succeeded
                 elif task.kind == "lesson_assemble":
                     self._handle_lesson(task, heartbeat)
                 else:
                     self._handle(task, heartbeat)
             except StaleAttempt:
                 _log(logging.WARNING, task.id, "publicacao", "STALE_ATTEMPT")
+                if dispatch_id:
+                    return False
         return True
 
-    def _handle_video(self, task: Task, heartbeat: Heartbeat) -> None:
+    def _handle_video(self, task: Task, heartbeat: Heartbeat) -> bool:
         def set_stage(stage: str) -> None:
             heartbeat.set_stage(stage)
             _log(logging.INFO, task.id, stage, "OK")
@@ -339,6 +345,8 @@ class Supervisor:
             self._fail(task, heartbeat, "TRANSIENT", "Falha temporária no worker de geração.", True)
         else:
             _log(logging.INFO, task.id, "complete", "OK")
+            return True
+        return False
 
     def _handle_lesson(self, task: Task, heartbeat: Heartbeat) -> None:
         """Baixa cenas e logo, monta a aula em diretório temporário, envia e conclui."""
