@@ -422,9 +422,9 @@ class LessonAssembleTask(Base):
 
 class GpuLifecycle(Base):
     __tablename__ = "gpu_lifecycle"
-    worker_id: Mapped[str] = mapped_column(primary_key=True)
-    phase: Mapped[str]
-    hostname: Mapped[str | None]
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    phase: Mapped[str] = mapped_column(Text)
+    hostname: Mapped[str | None] = mapped_column(Text)
     instance_id: Mapped[uuid.UUID | None]
     volume_id: Mapped[uuid.UUID | None]
     started_at: Mapped[datetime | None]
