@@ -1,0 +1,17 @@
+[Unit]
+Description=EstudioIA video worker
+Requires=docker.service
+Wants=avatar-verda-tunnel.service
+After=docker.service avatar-verda-tunnel.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/estudioia
+ExecStart=/usr/bin/docker compose --env-file /etc/avatar/worker.env -f infra/compose/docker-compose.worker.yml -f infra/compose/docker-compose.worker-release.yml -f infra/compose/docker-compose.worker-verda.yml up --detach --pull never worker
+ExecStop=/usr/bin/docker compose --env-file /etc/avatar/worker.env -f infra/compose/docker-compose.worker.yml -f infra/compose/docker-compose.worker-release.yml -f infra/compose/docker-compose.worker-verda.yml stop worker
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
