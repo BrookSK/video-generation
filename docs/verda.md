@@ -52,3 +52,13 @@ Se houver erro na exclusão, mantenha o controlador e a credencial ativos.
 Ele volta a consultar a mesma instância e repete a exclusão enquanto ela
 existir. Antes de desligar o serviço controlador, confirme que a instância
 foi excluída.
+
+## Reversão
+
+Antes de ativar o controlador em outro ambiente, preserve o backup do
+PostgreSQL e valide o retorno à versão anterior em DEV. Para reverter,
+primeiro pare a admissão de novos vídeos e aguarde a exclusão confirmada da
+instância na Verda. A imagem anterior da API conhece o Alembic até a
+revisão `0005`. Antes de voltar a imagem, use a imagem que contém a revisão
+`0006` para executar `alembic downgrade 0005`. O downgrade remove somente a
+tabela de controle de GPU. Preserve os arquivos de vídeo e o disco de boot.
