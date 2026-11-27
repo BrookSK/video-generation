@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from avatar_api import jobs
 from avatar_api.auth import DbSession
 from avatar_api.errors import ApiError
+from avatar_api.gpu_controller import video_enabled
 from avatar_api.jobs import (
     AssetFileName,
     AssetPreparePayload,
@@ -75,7 +76,14 @@ class HeartbeatOut(BaseModel):
 @router.post("/claim", response_model=ClaimOut, responses={204: {"description": "Fila vazia."}})
 def claim(body: ClaimIn, db: DbSession, request: Request):
     settings = request.app.state.settings
-    claimed = jobs.claim_next(db, body.worker_id, body.kinds, settings.lease_seconds)
+    kinds = body.kinds
+    if (
+        "video" in kinds
+        and settings.verda_worker_id
+        and not video_enabled(db, settings.verda_worker_id, body.worker_id)
+    ):
+        kinds = [kind for kind in kinds if kind != "video"]
+    claimed = jobs.claim_next(db, body.worker_id, kinds, settings.lease_seconds)
     if claimed is None:
         db.commit()
         return Response(status_code=204)

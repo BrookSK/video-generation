@@ -31,6 +31,17 @@ export function useJobPolling<T>(path: string) {
 export function WorkerWarning({ data, error }: { data: WorkerPresence | null; error: string | null }) {
   if (error) return <p className="note" role="status">Não foi possível consultar o gerador: {error} O estado da GPU é desconhecido.</p>;
   if (!data) return null;
+  if (data.gpu_status) {
+    const messages = {
+      idle: null,
+      starting: "Iniciando a GPU na Verda. Os vídeos permanecem na fila.",
+      ready: null,
+      stopping: "Encerrando a instância da GPU na Verda.",
+      unavailable: "GPU indisponível no momento. Os vídeos permanecem na fila.",
+    };
+    const message = messages[data.gpu_status];
+    return message ? <p className="note" role="status">{message}</p> : null;
+  }
   const absent = data.last_heartbeat_at === null || Date.now() - Date.parse(data.last_heartbeat_at) > 120000;
   if (!absent) return null;
   return <aside className="worker-warning" role="status"><p><b>Gerador sem resposta</b></p><p>{data.last_heartbeat_at ? `Último sinal: ${new Date(data.last_heartbeat_at).toLocaleString("pt-BR")}.` : "Ainda não recebemos nenhum sinal do gerador."} A API e o painel estão acessíveis, mas o worker de vídeo na GPU não está confirmado. Vídeos permanecem na fila até o gerador retomar.</p></aside>;

@@ -1,0 +1,7 @@
+# Use with docker-compose.worker.yml and docker-compose.worker-release.yml on the GPU.
+services:
+  worker:
+    environment:
+      WORKER_ID: ${WORKER_ID:?Informe o ID exclusivo do ambiente}
+      WORKER_KINDS: video
+      WORKER_TOKEN: ${WORKER_TOKEN:?Informe o token do worker do ambiente}
