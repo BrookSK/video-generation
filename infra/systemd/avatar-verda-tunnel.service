@@ -1,0 +1,13 @@
+[Unit]
+Description=EstudioIA private tunnel to the VPS
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=avatar-tunnel
+ExecStart=/usr/bin/ssh -F /etc/avatar/tunnel/ssh_config -N -o BatchMode=yes -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=20 -o ServerAliveCountMax=3 avatar-api
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
