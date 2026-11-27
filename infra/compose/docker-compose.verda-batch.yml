@@ -1,0 +1,18 @@
+# Optional overlay for the VPS hosting API and PostgreSQL.
+services:
+  api:
+    environment:
+      VERDA_BATCH_ENABLED: "true"
+      VERDA_WORKER_ID: ${VERDA_WORKER_ID:?Defina a identidade exclusiva do ambiente}
+  gpu-controller:
+    image: ${API_IMAGE:?Informe a imagem da API com digest verificado}
+    command: ["python", "-m", "avatar_api.verda_batch"]
+    restart: unless-stopped
+    env_file:
+      - ${VERDA_ENV_FILE:?Informe o arquivo secreto do Batch Job}
+    environment:
+      DATABASE_URL: postgresql://avatar:${POSTGRES_PASSWORD:-}@postgres:5432/avatar
+      VERDA_WORKER_ID: ${VERDA_WORKER_ID:?Defina a identidade exclusiva do ambiente}
+    depends_on:
+      api:
+        condition: service_healthy

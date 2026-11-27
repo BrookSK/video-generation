@@ -432,3 +432,15 @@ class GpuLifecycle(Base):
     retry_at: Mapped[datetime | None]
     window_started_at: Mapped[datetime | None]
     launches: Mapped[int]
+
+
+class VerdaBatchDispatch(Base):
+    __tablename__ = "verda_batch_dispatches"
+
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    dispatch_id: Mapped[uuid.UUID]
+    video_id: Mapped[uuid.UUID]
+    submitted_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    launches: Mapped[int]
+    phase: Mapped[str] = mapped_column(Text)
