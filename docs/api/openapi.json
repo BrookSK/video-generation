@@ -819,7 +819,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkerStatusOut"
+                  "$ref": "#/components/schemas/PanelWorkerStatusOut"
                 }
               }
             }
@@ -3757,6 +3757,30 @@
             "type": "array",
             "minItems": 1,
             "title": "Kinds"
+          },
+          "dispatch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           }
         },
         "type": "object",
@@ -4953,6 +4977,45 @@
           "duration_seconds"
         ],
         "title": "PanelJobOut"
+      },
+      "PanelWorkerStatusOut": {
+        "properties": {
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat At"
+          },
+          "gpu_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "starting",
+                  "ready",
+                  "stopping",
+                  "unavailable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "last_heartbeat_at"
+        ],
+        "title": "PanelWorkerStatusOut"
       },
       "PublicAvatarDetailOut": {
         "properties": {

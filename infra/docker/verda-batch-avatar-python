@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+export XFORMERS_IGNORE_FLASH_VERSION_CHECK=1
+export PYTHONPATH=/opt/estudioia/blackwell
+exec /app/apps/worker/runtimes/avatar/.venv/bin/python "$@"
